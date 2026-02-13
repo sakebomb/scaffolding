@@ -163,7 +163,7 @@ endif
 # ---------------------------------------------------------------------------
 
 .PHONY: test test-unit test-integration test-agent test-file test-coverage \
-        lint fmt typecheck build check help
+        lint fmt typecheck build check setup-github help
 
 ## Run full test suite: unit → integration → agent (fail-fast)
 ## For Rust: cargo test runs all tests; tiers are filtered by test name prefix
@@ -250,6 +250,25 @@ build:
 check: lint typecheck test
 	@echo "✅ All checks passed — ready for PR."
 
+## Set up GitHub labels and project management
+setup-github:
+	@echo "═══ Setting up GitHub project management ═══"
+	@echo "Creating labels..."
+	@gh label create "bug" --color "d73a4a" --description "Something isn't working" --force 2>/dev/null || true
+	@gh label create "feature" --color "0075ca" --description "New feature or enhancement" --force 2>/dev/null || true
+	@gh label create "task" --color "0e8a16" --description "Development task or chore" --force 2>/dev/null || true
+	@gh label create "chore" --color "e4e669" --description "Maintenance or cleanup" --force 2>/dev/null || true
+	@gh label create "refactor" --color "d4c5f9" --description "Code restructuring, no behavior change" --force 2>/dev/null || true
+	@gh label create "P0-critical" --color "b60205" --description "Drop everything" --force 2>/dev/null || true
+	@gh label create "P1-high" --color "d93f0b" --description "Fix this sprint" --force 2>/dev/null || true
+	@gh label create "P2-medium" --color "fbca04" --description "Plan for next sprint" --force 2>/dev/null || true
+	@gh label create "P3-low" --color "c5def5" --description "Nice to have" --force 2>/dev/null || true
+	@gh label create "needs-triage" --color "f9d0c4" --description "Needs review and prioritization" --force 2>/dev/null || true
+	@gh label create "ready" --color "0e8a16" --description "Ready to be picked up" --force 2>/dev/null || true
+	@gh label create "blocked" --color "b60205" --description "Waiting on external dependency" --force 2>/dev/null || true
+	@gh label create "in-progress" --color "1d76db" --description "Currently being worked on" --force 2>/dev/null || true
+	@echo "✅ Labels created"
+
 ## Show available targets
 help:
 	@echo "Available targets:"
@@ -264,6 +283,7 @@ help:
 	@echo "  make typecheck         Run type checker"
 	@echo "  make build             Compile / build"
 	@echo "  make check             Lint + typecheck + full suite (pre-PR gate)"
+	@echo "  make setup-github      Create GitHub labels (requires gh CLI)"
 	@echo ""
 	@echo "Options:"
 	@echo "  LANG=python|typescript|go|rust  Override language detection"

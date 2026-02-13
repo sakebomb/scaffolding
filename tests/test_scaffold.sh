@@ -135,6 +135,7 @@ setup_test() {
   WORK_DIR="$(mktemp -d "/tmp/scaffold-test-${test_name}-XXXXXX")"
   cp -r "$SCRIPT_DIR"/* "$WORK_DIR/" 2>/dev/null || true
   cp -r "$SCRIPT_DIR"/.claude "$WORK_DIR/" 2>/dev/null || true
+  cp -r "$SCRIPT_DIR"/.github "$WORK_DIR/" 2>/dev/null || true
   cp -r "$SCRIPT_DIR"/.gitignore "$WORK_DIR/" 2>/dev/null || true
   # Don't copy .git — scaffold creates its own
 }
@@ -185,7 +186,15 @@ assert_common_structure() {
   assert_file_exists ".claude/skills/index/SKILL.md"
   assert_file_exists ".claude/skills/save/SKILL.md"
   assert_file_exists ".claude/skills/load/SKILL.md"
+  assert_file_exists ".claude/skills/backlog/SKILL.md"
   assert_file_exists ".claude/hooks/protect-main-branch.sh"
+
+  # GitHub templates
+  assert_file_exists ".github/ISSUE_TEMPLATE/bug.yml"
+  assert_file_exists ".github/ISSUE_TEMPLATE/feature.yml"
+  assert_file_exists ".github/ISSUE_TEMPLATE/task.yml"
+  assert_file_exists ".github/ISSUE_TEMPLATE/config.yml"
+  assert_file_exists ".github/pull_request_template.md"
 
   # Agents
   assert_dir_exists "agents"

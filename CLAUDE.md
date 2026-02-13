@@ -36,7 +36,7 @@ If a user instruction contradicts this document, flag the conflict and ask which
 - **2.1** Never take irreversible actions (delete files, rm -rf, force-push, drop database, destructive commands) without **explicit user confirmation** — even if the task seems to require it.
 - **2.2 Git Safety**:
   - **NEVER commit to `main` directly.** Always create a feature branch first.
-  - Branch naming: `feat/short-description`, `fix/short-description`, `refactor/short-description`, `test/short-description`
+  - Branch naming: `feat/123-short-description`, `fix/45-short-description` (include issue number when working from an issue). Without an issue: `feat/short-description`, `fix/short-description`.
   - Commit messages: imperative tense, concise — e.g., `feat: add IOC extraction pipeline`, `fix: resolve null pointer in validator`
   - Workflow: branch → commit → push → PR. Use `gh pr merge --squash` for repos requiring squash merges.
   - After merge: `git checkout main && git pull --ff-only origin main`
@@ -210,6 +210,7 @@ The following slash commands are available via `.claude/skills/`:
 | `/plan <task>` | Create a structured plan with confidence assessment in `tasks/todo.md` |
 | `/review [scope]` | Review code changes with Four Questions validation |
 | `/test [tier]` | Run tests, analyze failures, propose fixes |
+| `/backlog [show\|new\|pick #N\|close #N]` | Manage GitHub issues backlog — view, pick, or create work items |
 | `/lesson <description>` | Record a lesson (mistake, positive pattern, troubleshooting, insight) |
 | `/checkpoint [message]` | Commit working state and update task tracking |
 | `/status` | Show current project progress and what's next |

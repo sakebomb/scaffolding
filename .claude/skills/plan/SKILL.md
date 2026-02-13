@@ -44,6 +44,19 @@ Include the confidence score and a one-line assessment in the plan header:
 > Confidence: 0.85 — Architecture fit clear, but API behavior needs verification.
 ```
 
+## Milestone Prompt
+
+After writing the plan, if the plan has 2+ checkpoints, ask the user:
+
+> "This plan has [N] checkpoints. Would you like to create GitHub milestones for them?"
+
+If yes:
+1. Create milestones via `gh api repos/{owner}/{repo}/milestones` for each checkpoint.
+2. If issues exist for the work items, assign them to the appropriate milestone.
+3. Note the milestone names in `tasks/todo.md` next to each checkpoint.
+
+If `gh` is not available or the user declines, skip silently.
+
 ## Rules
 
 - Tasks under 3 steps: skip the plan, just execute. Still run the confidence check mentally.

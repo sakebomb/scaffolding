@@ -12,7 +12,7 @@ Scaffolding solves this by giving Claude Code the right context from the very fi
 
 - **An agent constitution** (`CLAUDE.md`) that defines guardrails, planning workflow, testing tiers, subagent delegation, and recovery patterns — so Claude operates with senior-engineer standards instead of guessing.
 - **Pre-configured permissions** (`.claude/settings.json`) with a tiered model — safe operations auto-approved, destructive operations always gated, and middle-ground operations that you decide during init.
-- **10 slash commands** (`/plan`, `/review`, `/test`, `/lesson`, `/checkpoint`, `/status`, `/simplify`, `/index`, `/save`, `/load`) so common workflows are one command away.
+- **11 slash commands** (`/plan`, `/review`, `/test`, `/lesson`, `/checkpoint`, `/status`, `/simplify`, `/index`, `/save`, `/load`, `/backlog`) so common workflows are one command away.
 - **8 agent specifications** for subagent delegation — Plan, Research, Code Review, Test Runner, Build Validator, Code Architect, Code Simplifier, and Verify — each with defined context budgets and output contracts.
 - **A lessons-learned system** (`tasks/lessons.md`) that accumulates across sessions, so mistakes compound into preventive rules instead of being forgotten.
 - **Language-specific conventions** for Python, TypeScript, Go, and Rust that get appended to `CLAUDE.md` during init — best practices, linter configs, project structure, and testing patterns.
@@ -121,8 +121,11 @@ scaffolding/
 ├── CLAUDE.md                   # Agent constitution (with placeholders)
 ├── .claude/
 │   ├── settings.json           # Permission defaults
-│   ├── skills/                 # 10 slash commands
+│   ├── skills/                 # 11 slash commands
 │   └── hooks/                  # Main branch protection
+├── .github/
+│   ├── ISSUE_TEMPLATE/         # Bug, feature, task templates
+│   └── pull_request_template.md
 ├── agents/                     # 8 agent specs
 ├── tasks/                      # Plan, lessons, test registry, session state
 ├── tests/                      # Tier directories
@@ -139,8 +142,11 @@ my-api/
 ├── .claude/
 │   ├── settings.json           # Permissions from your choices
 │   ├── skills/                 # /plan, /review, /test, /lesson, /checkpoint, /status,
-│   │                           #   /simplify, /index, /save, /load
+│   │                           #   /simplify, /index, /save, /load, /backlog
 │   └── hooks/                  # protect-main-branch.sh
+├── .github/
+│   ├── ISSUE_TEMPLATE/         # Bug, feature, task issue forms
+│   └── pull_request_template.md
 ├── agents/                     # plan, research, code-review, test-runner, build-validator,
 │   └── *.md                    #   code-architect, code-simplifier, verify
 ├── tasks/
@@ -198,6 +204,7 @@ Language-specific conventions (Python, TypeScript, Go, Rust) are appended during
 | `/index` | Generate `PROJECT_INDEX.md` for fast session orientation |
 | `/save` | Snapshot session state to `tasks/session.md` |
 | `/load` | Restore context from previous session and orient |
+| `/backlog` | Manage GitHub issues — view, pick, create, close work items |
 
 ### Agents
 
@@ -275,6 +282,18 @@ Language-aware with auto-detection (Cargo.toml, go.mod, tsconfig.json, pyproject
 | `make typecheck` | Run type checker |
 | `make build` | Compile/build |
 | `make check` | lint + typecheck + test (pre-PR gate) |
+| `make setup-github` | Create issue labels (requires `gh` CLI) |
+
+### GitHub Project Management
+
+Scaffolding includes issue templates, a PR template, and label taxonomy to integrate with GitHub's project management features:
+
+- **Issue templates** (`.github/ISSUE_TEMPLATE/`) — form-based templates for bugs, features, and tasks with structured fields (severity, scope, acceptance criteria)
+- **PR template** (`.github/pull_request_template.md`) — standardized format with What/Why/How sections, test plan checklist, and issue linking
+- **Labels** — type labels (bug, feature, task, chore, refactor), priority labels (P0-critical through P3-low), and status labels (needs-triage, ready, blocked, in-progress). Created via `make setup-github` or during `./scaffold` init
+- **`/backlog` command** — bridges GitHub Issues with local task management. View open issues by priority, pick an issue to start working on (creates branch, sets labels, writes plan), create new issues, or close completed ones
+
+During `./scaffold` init, if the GitHub CLI is authenticated, you'll be prompted to create labels and optionally a GitHub Projects kanban board.
 
 ## Supported Languages
 
@@ -308,7 +327,7 @@ Language-aware with auto-detection (Cargo.toml, go.mod, tsconfig.json, pyproject
 ### Running Tests
 
 ```bash
-# All tests (7 suites, 272 assertions)
+# All tests (7 suites, 302 assertions)
 bash tests/test_scaffold.sh
 
 # Single language

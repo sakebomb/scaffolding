@@ -33,6 +33,8 @@ ALLOW_COMMIT=false
 ALLOW_PUSH=false
 ALLOW_PKG_MANAGER=false
 ALLOW_DOCKER=false
+SETUP_LABELS=false
+SETUP_KANBAN=false
 
 # Colors (disabled if not a terminal)
 if [[ -t 1 ]]; then
@@ -449,6 +451,126 @@ step_git_remote() {
 }
 
 # ---------------------------------------------------------------------------
+# Step 7: GitHub Project Management
+# ---------------------------------------------------------------------------
+step_github_pm() {
+  header "GitHub Project Management"
+
+  info "Issue templates and PR template are included in .github/"
+
+  if [[ -z "$GIT_REMOTE" ]]; then
+    info "No git remote set. Run 'make setup-github' when your remote is ready."
+    return
+  fi
+
+  if ! command -v gh &>/dev/null; then
+    info "GitHub CLI (gh) not found. Install it and run 'make setup-github' to set up labels."
+    return
+  fi
+
+  if ! gh auth status &>/dev/null 2>&1; then
+    info "GitHub CLI not authenticated. Run 'gh auth login' then 'make setup-github'."
+    return
+  fi
+
+  prompt_yn SETUP_LABELS "Create issue labels (type, priority, status)?" true
+  prompt_yn SETUP_KANBAN "Create a GitHub Projects kanban board?" false
+}
+
+extract_repo_from_remote() {
+  local url="$GIT_REMOTE"
+  # Handle SSH: git@github.com:user/repo.git
+  if [[ "$url" == git@github.com:* ]]; then
+    url="${url#git@github.com:}"
+    url="${url%.git}"
+    echo "$url"
+    return
+  fi
+  # Handle HTTPS: https://github.com/user/repo.git
+  if [[ "$url" == https://github.com/* ]]; then
+    url="${url#https://github.com/}"
+    url="${url%.git}"
+    echo "$url"
+    return
+  fi
+  echo ""
+}
+
+create_github_labels() {
+  info "Creating issue labels..."
+  local repo
+  repo="$(extract_repo_from_remote)"
+  if [[ -z "$repo" ]]; then
+    warn "Could not determine GitHub repo from remote URL."
+    return
+  fi
+
+  # Type labels
+  gh label create "bug" --color "d73a4a" --description "Something isn't working" --repo "$repo" --force 2>/dev/null || true
+  gh label create "feature" --color "0075ca" --description "New feature or enhancement" --repo "$repo" --force 2>/dev/null || true
+  gh label create "task" --color "0e8a16" --description "Development task or chore" --repo "$repo" --force 2>/dev/null || true
+  gh label create "chore" --color "e4e669" --description "Maintenance or cleanup" --repo "$repo" --force 2>/dev/null || true
+  gh label create "refactor" --color "d4c5f9" --description "Code restructuring, no behavior change" --repo "$repo" --force 2>/dev/null || true
+
+  # Priority labels
+  gh label create "P0-critical" --color "b60205" --description "Drop everything" --repo "$repo" --force 2>/dev/null || true
+  gh label create "P1-high" --color "d93f0b" --description "Fix this sprint" --repo "$repo" --force 2>/dev/null || true
+  gh label create "P2-medium" --color "fbca04" --description "Plan for next sprint" --repo "$repo" --force 2>/dev/null || true
+  gh label create "P3-low" --color "c5def5" --description "Nice to have" --repo "$repo" --force 2>/dev/null || true
+
+  # Status labels
+  gh label create "needs-triage" --color "f9d0c4" --description "Needs review and prioritization" --repo "$repo" --force 2>/dev/null || true
+  gh label create "ready" --color "0e8a16" --description "Ready to be picked up" --repo "$repo" --force 2>/dev/null || true
+  gh label create "blocked" --color "b60205" --description "Waiting on external dependency" --repo "$repo" --force 2>/dev/null || true
+  gh label create "in-progress" --color "1d76db" --description "Currently being worked on" --repo "$repo" --force 2>/dev/null || true
+
+  success "Labels created (type, priority, status)"
+}
+
+create_github_project() {
+  info "Creating GitHub Projects kanban board..."
+  local repo
+  repo="$(extract_repo_from_remote)"
+  local owner="${repo%%/*}"
+
+  local project_url
+  project_url="$(gh project create --title "${PROJECT_NAME}" --owner "$owner" 2>/dev/null)" || true
+
+  if [[ -n "$project_url" ]]; then
+    success "Kanban board created: $project_url"
+  else
+    warn "Could not create project board. Create one manually at https://github.com/${repo}/projects"
+  fi
+}
+
+apply_github_pm() {
+  if [[ "$SETUP_LABELS" != true && "$SETUP_KANBAN" != true ]]; then
+    return
+  fi
+
+  header "Setting Up GitHub Project Management"
+
+  # Push to remote first so labels can be created
+  if [[ -n "$GIT_REMOTE" ]]; then
+    info "Pushing to remote..."
+    git -C "$SCRIPT_DIR" push -u origin main 2>/dev/null || true
+  fi
+
+  if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null 2>&1; then
+    info "GitHub CLI not available. Run 'make setup-github' to create labels and project board."
+    return
+  fi
+
+  if [[ "$SETUP_LABELS" == true ]]; then
+    create_github_labels
+  fi
+
+  if [[ "$SETUP_KANBAN" == true ]]; then
+    create_github_project
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Apply: Template engine
 # ---------------------------------------------------------------------------
 apply_templates() {
@@ -620,7 +742,7 @@ make test
 This project is configured for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with:
 
 - Agent constitution (\`CLAUDE.md\`)
-- 10 slash commands: \`/plan\`, \`/review\`, \`/test\`, \`/lesson\`, \`/checkpoint\`, \`/status\`, \`/simplify\`, \`/index\`, \`/save\`, \`/load\`
+- 11 slash commands: \`/plan\`, \`/review\`, \`/test\`, \`/backlog\`, \`/lesson\`, \`/checkpoint\`, \`/status\`, \`/simplify\`, \`/index\`, \`/save\`, \`/load\`
 - 8 agent specifications in \`agents/\`
 - Task management in \`tasks/\`
 
@@ -775,11 +897,12 @@ show_summary() {
   echo "What's configured:"
   echo -e "  ${BOLD}CLAUDE.md${RESET}           Agent constitution + conventions"
   echo -e "  ${BOLD}.claude/settings${RESET}    Tiered permissions"
-  echo -e "  ${BOLD}.claude/skills/${RESET}     10 slash commands (/plan, /review, /save, /load, ...)"
+  echo -e "  ${BOLD}.claude/skills/${RESET}     11 slash commands (/plan, /review, /backlog, /save, /load, ...)"
   echo -e "  ${BOLD}.claude/hooks/${RESET}      Main branch protection"
+  echo -e "  ${BOLD}.github/${RESET}            Issue templates, PR template"
   echo -e "  ${BOLD}agents/${RESET}             8 agent specifications"
   echo -e "  ${BOLD}tasks/${RESET}              Plan, lessons, test registry"
-  echo -e "  ${BOLD}Makefile${RESET}            test, lint, fmt, typecheck, build, check"
+  echo -e "  ${BOLD}Makefile${RESET}            test, lint, fmt, typecheck, build, check, setup-github"
 
   if [[ "$LANGUAGE" != "none" ]]; then
     echo -e "  ${BOLD}Language${RESET}            $LANGUAGE (conventions, configs, tooling)"
@@ -821,10 +944,12 @@ main() {
   step_ralph
   step_planning
   step_git_remote
+  step_github_pm
 
   apply_templates
   cleanup_artifacts
   init_git
+  apply_github_pm
   show_summary
 }
 
