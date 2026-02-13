@@ -60,7 +60,7 @@ ADD_DIR=""
 ADD_MODE=false
 VERIFY_MODE=false
 MIGRATE_MODE=false
-SCAFFOLD_VERSION="0.3.0"
+SCAFFOLD_VERSION="1.0.0"
 
 # Rollback tracking
 PRE_SNAPSHOT=""

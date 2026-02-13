@@ -1853,6 +1853,150 @@ test_install_template_invalid() {
 }
 
 # ---------------------------------------------------------------------------
+# Test: protect-main-branch hook
+# ---------------------------------------------------------------------------
+test_hook_protect_main() {
+  echo -e "\n${BOLD}Test: protect-main-branch hook${RESET}"
+
+  local hook="$SCRIPT_DIR/.claude/hooks/protect-main-branch.sh"
+
+  if [[ ! -f "$hook" ]]; then
+    echo -e "  ${RED}FAIL${RESET} Hook file not found: $hook"
+    TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
+    return
+  fi
+
+  if ! command -v jq &>/dev/null; then
+    echo -e "  ${YELLOW}SKIP${RESET} jq not installed — hook tests skipped"
+    return
+  fi
+
+  # We need a git repo to test branch detection
+  local hook_dir
+  hook_dir=$(mktemp -d "/tmp/scaffold-test-hook-XXXXXX")
+  cp "$hook" "$hook_dir/hook.sh"
+  chmod +x "$hook_dir/hook.sh"
+  (cd "$hook_dir" && git init -q && git config user.name "Test" && git config user.email "test@test" && touch .keep && git add . && git commit -m "init" -q)
+
+  # --- Test 1: git commit on main → blocked ---
+  TOTAL=$((TOTAL + 1))
+  local output
+  output=$(echo '{"tool_input":{"command":"git commit -m test"}}' | (cd "$hook_dir" && bash hook.sh) 2>&1)
+  if echo "$output" | grep -q '"permissionDecision":"deny"'; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} git commit on main should be denied"
+  fi
+
+  # --- Test 2: git push on main → blocked ---
+  TOTAL=$((TOTAL + 1))
+  output=$(echo '{"tool_input":{"command":"git push origin main"}}' | (cd "$hook_dir" && bash hook.sh) 2>&1)
+  if echo "$output" | grep -q '"permissionDecision":"deny"'; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} git push on main should be denied"
+  fi
+
+  # --- Test 3: deny output contains helpful message ---
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "Create a feature branch first"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Deny output should contain branch creation suggestion"
+  fi
+
+  # --- Test 4: deny output is valid JSON ---
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | jq . > /dev/null 2>&1; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Deny output should be valid JSON"
+  fi
+
+  # --- Test 5: git commit on feature branch → allowed ---
+  (cd "$hook_dir" && git checkout -b feat/test -q)
+  TOTAL=$((TOTAL + 1))
+  output=$(echo '{"tool_input":{"command":"git commit -m test"}}' | (cd "$hook_dir" && bash hook.sh) 2>&1)
+  if [[ -z "$output" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} git commit on feature branch should produce no output (allowed)"
+  fi
+
+  # --- Test 6: git push on feature branch → allowed ---
+  TOTAL=$((TOTAL + 1))
+  output=$(echo '{"tool_input":{"command":"git push origin feat/test"}}' | (cd "$hook_dir" && bash hook.sh) 2>&1)
+  if [[ -z "$output" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} git push on feature branch should produce no output (allowed)"
+  fi
+
+  # --- Test 7: non-git command → allowed ---
+  TOTAL=$((TOTAL + 1))
+  output=$(echo '{"tool_input":{"command":"git status"}}' | (cd "$hook_dir" && bash hook.sh) 2>&1)
+  if [[ -z "$output" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} git status should produce no output (allowed)"
+  fi
+
+  # --- Test 8: git log → allowed ---
+  TOTAL=$((TOTAL + 1))
+  output=$(echo '{"tool_input":{"command":"git log --oneline"}}' | (cd "$hook_dir" && bash hook.sh) 2>&1)
+  if [[ -z "$output" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} git log should produce no output (allowed)"
+  fi
+
+  # --- Test 9: master branch also blocked ---
+  # Ensure we're on a branch called "master" (may already exist from git init)
+  (cd "$hook_dir" && git checkout master -q 2>/dev/null) || \
+    (cd "$hook_dir" && git checkout -b master -q 2>/dev/null) || true
+  TOTAL=$((TOTAL + 1))
+  output=$(echo '{"tool_input":{"command":"git commit -m test"}}' | (cd "$hook_dir" && bash hook.sh) 2>&1)
+  if echo "$output" | grep -q '"permissionDecision":"deny"'; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} git commit on master should be denied"
+  fi
+
+  # --- Test 10: empty/malformed input → allowed (no crash) ---
+  TOTAL=$((TOTAL + 1))
+  local exit_code=0
+  output=$(echo '{}' | (cd "$hook_dir" && bash hook.sh) 2>&1) || exit_code=$?
+  if [[ $exit_code -eq 0 ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Malformed input should not crash hook (exit 0)"
+  fi
+
+  # --- Test 11: hook always exits 0 ---
+  TOTAL=$((TOTAL + 1))
+  exit_code=0
+  echo '{"tool_input":{"command":"git commit -m blocked"}}' | (cd "$hook_dir" && bash hook.sh) > /dev/null 2>&1 || exit_code=$?
+  if [[ $exit_code -eq 0 ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Hook should always exit 0 (even when denying)"
+  fi
+
+  rm -rf "$hook_dir"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
@@ -1891,6 +2035,7 @@ main() {
     verify-fail)    test_verify_fail ;;
     install-tpl)    test_install_template ;;
     install-tpl-bad) test_install_template_invalid ;;
+    hook-protect)   test_hook_protect_main ;;
     smoke-python)   test_smoke_python ;;
     smoke-go)       test_smoke_go ;;
     smoke)
@@ -1934,12 +2079,13 @@ main() {
       test_verify_fail
       test_install_template
       test_install_template_invalid
+      test_hook_protect_main
       test_smoke_python
       test_smoke_go
       ;;
     *)
       echo "Unknown test: $filter"
-      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|completions|rollback|add-language|version|migrate|migrate-idem|scaffoldrc|scaffoldrc-ovr|completions-zsh|completions-bash|add-dir|version-file|add-interactive|add-explicit|verify-pass|verify-fail|install-tpl|install-tpl-bad|smoke|smoke-python|smoke-go|archetypes|all]"
+      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|completions|rollback|add-language|version|migrate|migrate-idem|scaffoldrc|scaffoldrc-ovr|completions-zsh|completions-bash|add-dir|version-file|add-interactive|add-explicit|verify-pass|verify-fail|install-tpl|install-tpl-bad|hook-protect|smoke|smoke-python|smoke-go|archetypes|all]"
       exit 1
       ;;
   esac

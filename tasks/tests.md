@@ -9,7 +9,7 @@
 
 | Command | Scope | When to Use |
 |---------|-------|-------------|
-| `bash tests/test_scaffold.sh` | All scaffold behavior tests (32 suites, 721 assertions) | Before PR, after scaffold changes |
+| `bash tests/test_scaffold.sh` | All scaffold behavior tests (33 suites, 732 assertions) | Before PR, after scaffold changes |
 | `bash tests/test_scaffold.sh python` | Single language test | Debugging specific language scaffold |
 | `bash tests/test_scaffold.sh archetypes` | All archetype tests (4 suites) | After archetype changes |
 | `bash tests/test_scaffold.sh keep` | --keep flag test | After changes to cleanup logic |
@@ -34,6 +34,7 @@
 | `bash tests/test_scaffold.sh verify-fail` | --verify failure detection test | After verify logic changes |
 | `bash tests/test_scaffold.sh install-tpl` | --install-template test | After template registry changes |
 | `bash tests/test_scaffold.sh install-tpl-bad` | Invalid template rejection test | After template registry changes |
+| `bash tests/test_scaffold.sh hook-protect` | protect-main-branch hook test | After hook changes |
 | `make test` | Full suite (all tiers) | Before PR, CI validation |
 | `make test-unit` | Tier 1 — Unit tests | During development, before commit |
 | `make test-integration` | Tier 2 — Integration tests | Before PR |
@@ -48,7 +49,7 @@
 | Module / Component | Unit | Integration | Agent Behavior | Priority Gap |
 |-------------------|------|-------------|----------------|--------------|
 | scaffold (init script) | ❌ 0 | ✅ 721 (32 suites) | ❌ 0 | LOW |
-| .claude/hooks/protect-main-branch.sh | ❌ 0 | ❌ 0 | ❌ 0 | MEDIUM |
+| .claude/hooks/protect-main-branch.sh | ✅ 11 (1 suite) | ❌ 0 | ❌ 0 | LOW |
 | .claude/skills/ | ❌ 0 | ❌ 0 | ❌ 0 | LOW |
 
 > **Legend**: ✅ = covered (count), ❌ = missing (0), 🟡 = partial
@@ -91,7 +92,7 @@
 ## Coverage Gaps & TODO
 
 - [x] Scaffold behavior tests for all 4 languages + none + --keep + permissions
-- [ ] Hook tests (protect-main-branch.sh) — mock git branch, verify JSON output
+- [x] Hook tests (protect-main-branch.sh) — 11 assertions: deny on main/master, allow on feature, valid JSON, helpful message
 - [ ] Makefile target tests — verify each language's targets resolve correctly
 
 ---
