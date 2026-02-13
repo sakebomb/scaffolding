@@ -1023,14 +1023,16 @@ PLAN
 
   # Parse components into checkboxes
   local step=1
-  IFS=',' read -ra COMP_ARRAY <<< "$components"
-  for comp in "${COMP_ARRAY[@]}"; do
-    comp="$(echo "$comp" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    if [[ -n "$comp" ]]; then
-      echo "- [ ] ${step}. ${comp}" >> "$plan_file"
-      step=$((step + 1))
-    fi
-  done
+  if [[ -n "$components" ]]; then
+    IFS=',' read -ra COMP_ARRAY <<< "$components"
+    for comp in "${COMP_ARRAY[@]}"; do
+      comp="$(echo "$comp" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      if [[ -n "$comp" ]]; then
+        echo "- [ ] ${step}. ${comp}" >> "$plan_file"
+        step=$((step + 1))
+      fi
+    done
+  fi
 
   cat >> "$plan_file" <<PLAN
 
