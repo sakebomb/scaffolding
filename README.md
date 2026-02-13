@@ -155,10 +155,13 @@ source <(scaffold --completions)
 Layer a second language into an existing scaffolded project:
 
 ```bash
-./scaffold --add typescript
+./scaffold --add typescript     # Specify language
+./scaffold --add               # Interactive selection
 ```
 
 This appends TypeScript conventions to `CLAUDE.md`, adds config files (without overwriting existing ones), updates `.gitignore`, adds prefixed Makefile targets (`test-ts`, `lint-ts`, `fmt-ts`, `typecheck-ts`), and updates the CI workflow. Requires templates to be present (use `--keep` on initial run).
+
+When called without a language argument, `--add` prompts for interactive selection (or defaults to python in `--non-interactive` mode).
 
 For monorepo layouts, place the language in a subdirectory:
 
@@ -184,6 +187,36 @@ This auto-detects your language (from `pyproject.toml`, `package.json`, `go.mod`
 ```bash
 scaffold --version
 ```
+
+### Verify
+
+Run a health check on a scaffolded project:
+
+```bash
+cd my-project
+scaffold --verify
+```
+
+Checks: git repo initialized, required files present (`CLAUDE.md`, `.claude/settings.json`, `Makefile`, `.gitignore`), `.scaffold-version` exists, `settings.json` is valid JSON, no leftover `{{placeholders}}`. Exits 0 on pass, 1 on failure.
+
+### Community Templates
+
+Install a community language template:
+
+```bash
+scaffold --install-template https://github.com/user/scaffold-template-ruby
+scaffold --install-template ./local-template-dir
+```
+
+Templates are installed to `~/.scaffold/templates/<name>/` and become available in `--add` language selection.
+
+List all available templates (built-in + installed):
+
+```bash
+scaffold --list-templates
+```
+
+A valid template must contain at minimum `CONVENTIONS.md` and `gitignore.append`. Optionally include `.tmpl` files (with `{{PROJECT_NAME}}`/`{{PROJECT_DESCRIPTION}}` placeholders) and config files.
 
 ### Persistent Defaults (`.scaffoldrc`)
 
@@ -511,7 +544,7 @@ Each archetype is language-aware — a Python API uses stdlib `http.server`, a G
 ### Running Tests
 
 ```bash
-# All tests (26 suites, 704 assertions)
+# All tests (32 suites, 721 assertions)
 bash tests/test_scaffold.sh
 
 # Single language
@@ -551,7 +584,7 @@ scaffold/
 ├── agents/                     # Agent specifications
 ├── tasks/                      # Plan, lessons, test registry
 ├── tests/
-│   └── test_scaffold.sh        # Behavior tests (704 assertions)
+│   └── test_scaffold.sh        # Behavior tests (721 assertions)
 └── CLAUDE.md                   # Agent constitution (with placeholders)
 ```
 

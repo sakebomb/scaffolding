@@ -1,44 +1,42 @@
-# Task Plan — P2 Features: .scaffoldrc, Zsh Completions, Monorepo --dir, Version Tracking
+# Task Plan — P3 Features: Interactive --add, --verify, Plugin Registry
 
 > Updated: 2026-02-13
-> Branch: `feat/p2-round2`
+> Branch: `feat/p3-round1`
 > Status: Complete — ready for PR
-> Issues: #24, #25, #26, #27
+> Issues: #28, #29, #30
 
 ## Objective
 
-Implement four P2-medium features: persistent user defaults, zsh completion, monorepo subdirectory support, and version tracking in scaffolded projects.
+Implement three P3-low features: interactive language selection for `--add`, post-scaffold verification, and community template installation.
 
 ## Plan
 
-### Phase 1: `.scaffoldrc` defaults file (#24)
-- [x] 1. Add `load_scaffoldrc()` — read `~/.scaffoldrc` (bash key=value) into globals after defaults, before `parse_flags()`
-- [x] 2. Only set globals that haven't been overridden by CLI flags (precedence: CLI > .scaffoldrc > hardcoded)
-- [x] 3. Add `--save-defaults` flag — write current choices to `~/.scaffoldrc` after scaffold completes
-- [x] 4. Add test: scaffoldrc sets LANGUAGE=go → non-interactive scaffold produces Go project
-- [x] 5. Add test: CLI flag overrides scaffoldrc
+### Phase 1: Interactive `--add` (#29)
+- [x] 1. Modify `parse_flags()` — `--add` without an argument sets `ADD_MODE=true` but leaves `ADD_LANGUAGE=""`
+- [x] 2. In `main()`, when `ADD_MODE=true` and `ADD_LANGUAGE=""`, call `prompt_choice` with available languages
+- [x] 3. Non-interactive fallback: default to first language (python)
+- [x] 4. Add test: `--add` without arg in non-interactive mode scaffolds python
+- [x] 5. Add test: `--add python` still works unchanged
 
-### Phase 2: Zsh completion support (#25)
-- [x] 6. Extend `--completions` to accept optional arg: `--completions bash` / `--completions zsh`
-- [x] 7. Auto-detect from `$SHELL` if no arg given (default to bash)
-- [x] 8. Add `print_zsh_completions()` using `#compdef` / `_arguments` format
-- [x] 9. Add test: `--completions zsh` outputs `#compdef`, `_arguments`, all flags
-- [x] 10. Add test: `--completions bash` still works unchanged
+### Phase 2: `--verify` flag (#30)
+- [x] 6. Add `--verify` flag to `parse_flags()`, add `VERIFY_MODE=false` global
+- [x] 7. Create `run_verify()` — runs checks, prints pass/fail per check, returns exit code
+- [x] 8. Checks: git repo, required files, .scaffold-version, valid JSON, no placeholders
+- [x] 9. Add test: `--verify` on a freshly scaffolded project → exit 0, all checks pass
+- [x] 10. Add test: `--verify` detects leftover placeholder → exit 1, reports failure
 
-### Phase 3: Monorepo `--add --dir` (#26)
-- [x] 11. Add `--dir <path>` flag to `parse_flags()` (only valid with `--add`)
-- [x] 12. Modify `run_add_language()` — when `ADD_DIR` is set, place config files in subdirectory
-- [x] 13. Namespace Makefile targets with dir prefix: `test-backend-py` instead of `test-py`
-- [x] 14. Scope CI workflow steps to subdirectory: `cd <dir> && make test-<lang>`
-- [x] 15. Add test: `--add python --dir backend` puts pyproject.toml in backend/, Makefile targets prefixed
+### Phase 3: Plugin/template registry (#28)
+- [x] 11. Add `--install-template <url-or-path>` flag to `parse_flags()`
+- [x] 12. Create `install_template()` — copy/clone to `~/.scaffold/templates/<name>/`
+- [x] 13. Template validation: must contain `CONVENTIONS.md` and `gitignore.append`
+- [x] 14. Add `--list-templates` flag — lists built-in + installed templates
+- [x] 15. Create `list_available_languages()` helper — scans built-in + installed template dirs
+- [x] 16. Wire `list_available_languages()` into `--add` validation (accepts installed templates)
+- [x] 17. Add test: `--install-template` from local path installs and `--list-templates` shows it
+- [x] 18. Add test: invalid template (missing CONVENTIONS.md) fails validation
 
-### Phase 4: Version tracking in scaffolded projects (#27)
-- [x] 16. Write `.scaffold-version` file during scaffold (contains SCAFFOLD_VERSION + date)
-- [x] 17. `--update` reads `.scaffold-version` to show what version the project was scaffolded with
-- [x] 18. Add test: `.scaffold-version` exists after scaffold, contains version string
-
-### Phase 5: Polish
-- [x] 19. Update README (new flags, .scaffoldrc docs, zsh completion)
-- [x] 20. Update tasks/tests.md with new test commands
-- [x] 21. Run full test suite — 704/704 across 26 suites
+### Phase 4: Polish
+- [x] 19. Update README (new flags, template authoring docs)
+- [x] 20. Update tasks/tests.md
+- [x] 21. Run full test suite — 721/721 across 32 suites
 - [ ] 22. Commit, push, PR
