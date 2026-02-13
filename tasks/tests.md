@@ -9,7 +9,7 @@
 
 | Command | Scope | When to Use |
 |---------|-------|-------------|
-| `bash tests/test_scaffold.sh` | All scaffold behavior tests (12 suites, 614 assertions) | Before PR, after scaffold changes |
+| `bash tests/test_scaffold.sh` | All scaffold behavior tests (12 suites, 641 assertions) | Before PR, after scaffold changes |
 | `bash tests/test_scaffold.sh python` | Single language test | Debugging specific language scaffold |
 | `bash tests/test_scaffold.sh archetypes` | All archetype tests (4 suites) | After archetype changes |
 | `bash tests/test_scaffold.sh keep` | --keep flag test | After changes to cleanup logic |
@@ -28,7 +28,7 @@
 
 | Module / Component | Unit | Integration | Agent Behavior | Priority Gap |
 |-------------------|------|-------------|----------------|--------------|
-| scaffold (init script) | ❌ 0 | ✅ 614 (12 suites) | ❌ 0 | LOW |
+| scaffold (init script) | ❌ 0 | ✅ 641 (12 suites) | ❌ 0 | LOW |
 | .claude/hooks/protect-main-branch.sh | ❌ 0 | ❌ 0 | ❌ 0 | MEDIUM |
 | .claude/skills/ | ❌ 0 | ❌ 0 | ❌ 0 | LOW |
 

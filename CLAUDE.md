@@ -217,6 +217,7 @@ The following slash commands are available via `.claude/skills/`:
 | `/checkpoint [message]` | Commit working state and update task tracking |
 | `/status` | Show current project progress and what's next |
 | `/simplify [path]` | Analyze code for unnecessary complexity |
+| `/refactor [path]` | Guided refactoring with before/after test validation |
 | `/index [update]` | Generate or update `PROJECT_INDEX.md` for fast session orientation |
 | `/save [note]` | Snapshot session state to `tasks/session.md` |
 | `/load` | Restore context from previous session and orient for resumed work |

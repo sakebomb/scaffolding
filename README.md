@@ -12,7 +12,7 @@ Scaffold solves this by giving Claude Code the right context from the very first
 
 - **An agent constitution** (`CLAUDE.md`) that defines guardrails, planning workflow, testing tiers, subagent delegation, and recovery patterns — so Claude operates with senior-engineer standards instead of guessing.
 - **Pre-configured permissions** (`.claude/settings.json`) with a tiered model — safe operations auto-approved, destructive operations always gated, and middle-ground operations that you decide during init.
-- **13 slash commands** (`/start`, `/plan`, `/review`, `/test`, `/lesson`, `/checkpoint`, `/status`, `/simplify`, `/index`, `/save`, `/load`, `/backlog`, `/doctor`) so common workflows are one command away.
+- **14 slash commands** (`/start`, `/plan`, `/review`, `/test`, `/refactor`, `/lesson`, `/checkpoint`, `/status`, `/simplify`, `/index`, `/save`, `/load`, `/backlog`, `/doctor`) so common workflows are one command away.
 - **8 agent specifications** for subagent delegation — Plan, Research, Code Review, Test Runner, Build Validator, Code Architect, Code Simplifier, and Verify — each with defined context budgets and output contracts.
 - **A lessons-learned system** (`tasks/lessons.md`) that accumulates across sessions, so mistakes compound into preventive rules instead of being forgotten.
 - **Language-specific conventions** for Python, TypeScript, Go, and Rust that get appended to `CLAUDE.md` during init — best practices, linter configs, project structure, and testing patterns.
@@ -143,7 +143,7 @@ scaffold/
 ├── CLAUDE.md                   # Agent constitution (with placeholders)
 ├── .claude/
 │   ├── settings.json           # Permission defaults
-│   ├── skills/                 # 13 slash commands
+│   ├── skills/                 # 14 slash commands
 │   └── hooks/                  # Main branch protection
 ├── .github/
 │   ├── ISSUE_TEMPLATE/         # Bug, feature, task templates
@@ -164,7 +164,7 @@ my-api/
 ├── GETTING_STARTED.md          # First-session onboarding guide
 ├── .claude/
 │   ├── settings.json           # Permissions from your choices
-│   ├── skills/                 # /start, /plan, /review, /test, /lesson, /checkpoint,
+│   ├── skills/                 # /start, /plan, /review, /test, /refactor, /lesson, /checkpoint,
 │   │                           #   /status, /simplify, /index, /save, /load, /backlog, /doctor
 │   └── hooks/                  # protect-main-branch.sh
 ├── .github/
@@ -198,6 +198,7 @@ my-api/
 ├── .pre-commit-config.yaml     # Linting + secret scanning hooks
 ├── .env.example                # Environment variable template
 ├── CHANGELOG.md                # Keep a Changelog format
+├── SECURITY.md                 # Responsible disclosure policy
 ├── .gitignore                  # Base + Python entries
 └── LICENSE                     # MIT
 ```
@@ -241,6 +242,7 @@ A `GETTING_STARTED.md` file is also generated in your project with a full walkth
 | `/checkpoint` | Stage, commit, and update `tasks/todo.md` progress |
 | `/status` | Show project progress — plan completion + git state |
 | `/simplify` | Analyze code complexity and suggest simplifications |
+| `/refactor` | Guided refactoring with before/after test validation |
 | `/index` | Generate `PROJECT_INDEX.md` for fast session orientation |
 | `/save` | Snapshot session state to `tasks/session.md` |
 | `/load` | Restore context from previous session and orient |
@@ -418,7 +420,7 @@ Each archetype is language-aware — a Python API uses stdlib `http.server`, a G
 ### Running Tests
 
 ```bash
-# All tests (12 suites, 614 assertions)
+# All tests (12 suites, 641 assertions)
 bash tests/test_scaffold.sh
 
 # Single language
@@ -441,13 +443,13 @@ scaffold/
 ├── templates/                  # Language templates + Ralph Wiggum
 ├── .claude/                    # Claude Code configuration
 │   ├── settings.json           # Permission tiers
-│   ├── skills/                 # Slash command definitions (13 commands)
+│   ├── skills/                 # Slash command definitions (14 commands)
 │   └── hooks/                  # Git safety hooks
 ├── .github/                    # Issue templates, PR template, CI/release workflows
 ├── agents/                     # Agent specifications
 ├── tasks/                      # Plan, lessons, test registry
 ├── tests/
-│   └── test_scaffold.sh        # Behavior tests (614 assertions)
+│   └── test_scaffold.sh        # Behavior tests (641 assertions)
 └── CLAUDE.md                   # Agent constitution (with placeholders)
 ```
 
