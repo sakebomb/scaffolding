@@ -9,7 +9,7 @@
 
 | Command | Scope | When to Use |
 |---------|-------|-------------|
-| `bash tests/test_scaffold.sh` | All scaffold behavior tests (20 suites, 683 assertions) | Before PR, after scaffold changes |
+| `bash tests/test_scaffold.sh` | All scaffold behavior tests (26 suites, 704 assertions) | Before PR, after scaffold changes |
 | `bash tests/test_scaffold.sh python` | Single language test | Debugging specific language scaffold |
 | `bash tests/test_scaffold.sh archetypes` | All archetype tests (4 suites) | After archetype changes |
 | `bash tests/test_scaffold.sh keep` | --keep flag test | After changes to cleanup logic |
@@ -22,6 +22,12 @@
 | `bash tests/test_scaffold.sh migrate` | --migrate flag test | After migrate logic changes |
 | `bash tests/test_scaffold.sh migrate-idem` | --migrate idempotent test | After migrate logic changes |
 | `bash tests/test_scaffold.sh smoke` | Smoke tests (Python + Go) | After Makefile or tooling changes |
+| `bash tests/test_scaffold.sh scaffoldrc` | .scaffoldrc defaults test | After .scaffoldrc logic changes |
+| `bash tests/test_scaffold.sh scaffoldrc-override` | .scaffoldrc CLI override test | After .scaffoldrc logic changes |
+| `bash tests/test_scaffold.sh completions-zsh` | Zsh completions test | After completion changes |
+| `bash tests/test_scaffold.sh completions-bash` | Bash completions explicit test | After completion changes |
+| `bash tests/test_scaffold.sh add-dir` | --add --dir monorepo test | After monorepo/add logic changes |
+| `bash tests/test_scaffold.sh scaffold-version` | .scaffold-version file test | After version tracking changes |
 | `make test` | Full suite (all tiers) | Before PR, CI validation |
 | `make test-unit` | Tier 1 — Unit tests | During development, before commit |
 | `make test-integration` | Tier 2 — Integration tests | Before PR |
@@ -35,7 +41,7 @@
 
 | Module / Component | Unit | Integration | Agent Behavior | Priority Gap |
 |-------------------|------|-------------|----------------|--------------|
-| scaffold (init script) | ❌ 0 | ✅ 683 (20 suites) | ❌ 0 | LOW |
+| scaffold (init script) | ❌ 0 | ✅ 704 (26 suites) | ❌ 0 | LOW |
 | .claude/hooks/protect-main-branch.sh | ❌ 0 | ❌ 0 | ❌ 0 | MEDIUM |
 | .claude/skills/ | ❌ 0 | ❌ 0 | ❌ 0 | LOW |
 

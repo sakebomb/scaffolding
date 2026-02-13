@@ -1,45 +1,44 @@
-# Task Plan — P1 Features: --migrate, Smoke Tests, Installable CLI
+# Task Plan — P2 Features: .scaffoldrc, Zsh Completions, Monorepo --dir, Version Tracking
 
 > Updated: 2026-02-13
-> Branch: `feat/p1-round2`
-> Status: Complete
-> Issues: #21, #22, #23
+> Branch: `feat/p2-round2`
+> Status: Complete — ready for PR
+> Issues: #24, #25, #26, #27
 
 ## Objective
 
-Implement three P1-high features: --migrate for existing projects, end-to-end smoke tests, and a curl-installable CLI.
+Implement four P2-medium features: persistent user defaults, zsh completion, monorepo subdirectory support, and version tracking in scaffolded projects.
 
 ## Plan
 
-### Phase 1: `--migrate` for existing projects (#21)
-- [x] 1. Add `--migrate` flag to `parse_flags()`
-- [x] 2. Add `detect_language()` — infer language from existing config files (pyproject.toml → python, etc.)
-- [x] 3. Add `detect_existing_components()` — check which scaffold components already exist
-- [x] 4. Add `run_migrate()` — generate only missing components, never overwrite
-- [x] 5. Append language conventions to CLAUDE.md if not present
-- [x] 6. Skip git init if .git already exists, skip cleanup_artifacts
-- [x] 7. Add test: migrate a bare Python project (only pyproject.toml + src/) → verify CLAUDE.md, skills, agents, tasks added
-- [x] 8. Add test: migrate idempotent (running twice doesn't duplicate)
+### Phase 1: `.scaffoldrc` defaults file (#24)
+- [x] 1. Add `load_scaffoldrc()` — read `~/.scaffoldrc` (bash key=value) into globals after defaults, before `parse_flags()`
+- [x] 2. Only set globals that haven't been overridden by CLI flags (precedence: CLI > .scaffoldrc > hardcoded)
+- [x] 3. Add `--save-defaults` flag — write current choices to `~/.scaffoldrc` after scaffold completes
+- [x] 4. Add test: scaffoldrc sets LANGUAGE=go → non-interactive scaffold produces Go project
+- [x] 5. Add test: CLI flag overrides scaffoldrc
 
-### Phase 2: End-to-end smoke tests (#22)
-- [x] 9. Add `test_smoke_python()` — scaffold python project, run `make lint` + `make fmt` (skips if ruff not installed)
-- [x] 10. Add `test_smoke_go()` — scaffold go project, run `make fmt` + `make lint` (skips lint if golangci-lint not installed)
-- [x] 11. Skip smoke tests gracefully if tooling not installed (warn, don't fail)
-- [x] 12. Wire into test runner as `bash tests/test_scaffold.sh smoke`
+### Phase 2: Zsh completion support (#25)
+- [x] 6. Extend `--completions` to accept optional arg: `--completions bash` / `--completions zsh`
+- [x] 7. Auto-detect from `$SHELL` if no arg given (default to bash)
+- [x] 8. Add `print_zsh_completions()` using `#compdef` / `_arguments` format
+- [x] 9. Add test: `--completions zsh` outputs `#compdef`, `_arguments`, all flags
+- [x] 10. Add test: `--completions bash` still works unchanged
 
-### Phase 3: Installable CLI (#23)
-- [x] 13. Add `--version` flag that prints scaffold version (git tag or hardcoded)
-- [x] 14. Create `install.sh` — curl one-liner that downloads scaffold + templates to `~/.scaffold/` and symlinks to PATH
-- [x] 15. Modify scaffold to locate templates relative to install location (TEMPLATE_DIR resolution)
-- [x] 16. Add install/usage docs to README
+### Phase 3: Monorepo `--add --dir` (#26)
+- [x] 11. Add `--dir <path>` flag to `parse_flags()` (only valid with `--add`)
+- [x] 12. Modify `run_add_language()` — when `ADD_DIR` is set, place config files in subdirectory
+- [x] 13. Namespace Makefile targets with dir prefix: `test-backend-py` instead of `test-py`
+- [x] 14. Scope CI workflow steps to subdirectory: `cd <dir> && make test-<lang>`
+- [x] 15. Add test: `--add python --dir backend` puts pyproject.toml in backend/, Makefile targets prefixed
 
-### Phase 4: Polish
-- [x] 17. Update README (new flags, counts, install instructions)
-- [x] 18. Run full test suite — 683/683 across 20 suites
-- [ ] 19. Commit, push, PR
+### Phase 4: Version tracking in scaffolded projects (#27)
+- [x] 16. Write `.scaffold-version` file during scaffold (contains SCAFFOLD_VERSION + date)
+- [x] 17. `--update` reads `.scaffold-version` to show what version the project was scaffolded with
+- [x] 18. Add test: `.scaffold-version` exists after scaffold, contains version string
 
-## Results
-
-- 683 assertions across 20 test suites, all passing
-- New features: `--migrate`, `--version`, `install.sh`, smoke tests
-- Template resolution: `TEMPLATE_DIR` supports both local repo and `~/.scaffold/` installs
+### Phase 5: Polish
+- [x] 19. Update README (new flags, .scaffoldrc docs, zsh completion)
+- [x] 20. Update tasks/tests.md with new test commands
+- [x] 21. Run full test suite — 704/704 across 26 suites
+- [ ] 22. Commit, push, PR

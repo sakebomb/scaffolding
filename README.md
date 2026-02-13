@@ -135,13 +135,19 @@ Preview what scaffold would create without writing anything:
 
 ### Shell Completion
 
-Enable tab-completion for scaffold flags:
+Enable tab-completion for scaffold flags (bash and zsh):
 
 ```bash
-source <(./scaffold --completions)
+# Bash
+source <(scaffold --completions bash)
+scaffold --completions bash >> ~/.bashrc
 
-# Or persist it:
-./scaffold --completions >> ~/.bashrc
+# Zsh
+source <(scaffold --completions zsh)
+scaffold --completions zsh >> ~/.zshrc
+
+# Auto-detect from $SHELL
+source <(scaffold --completions)
 ```
 
 ### Multi-Language Projects
@@ -153,6 +159,14 @@ Layer a second language into an existing scaffolded project:
 ```
 
 This appends TypeScript conventions to `CLAUDE.md`, adds config files (without overwriting existing ones), updates `.gitignore`, adds prefixed Makefile targets (`test-ts`, `lint-ts`, `fmt-ts`, `typecheck-ts`), and updates the CI workflow. Requires templates to be present (use `--keep` on initial run).
+
+For monorepo layouts, place the language in a subdirectory:
+
+```bash
+./scaffold --add python --dir backend
+```
+
+Config files go in `backend/`, Makefile targets are namespaced (`test-backend-py`, `lint-backend-py`), and commands are scoped to the subdirectory.
 
 ### Migrate Existing Projects
 
@@ -170,6 +184,27 @@ This auto-detects your language (from `pyproject.toml`, `package.json`, `go.mod`
 ```bash
 scaffold --version
 ```
+
+### Persistent Defaults (`.scaffoldrc`)
+
+Save your preferences so future runs skip redundant prompts:
+
+```bash
+# Save after a scaffold run
+./scaffold --save-defaults
+
+# Or create manually
+cat > ~/.scaffoldrc <<'EOF'
+LANGUAGE=python
+ARCHETYPE=api
+ENABLE_DOCKER=true
+ENABLE_VSCODE=true
+ALLOW_COMMIT=true
+ALLOW_PUSH=false
+EOF
+```
+
+Values in `~/.scaffoldrc` serve as defaults. CLI flags and interactive prompts still override them. In `--non-interactive` mode, `.scaffoldrc` values replace the built-in defaults.
 
 ### Keeping Scaffold Artifacts
 
@@ -476,7 +511,7 @@ Each archetype is language-aware — a Python API uses stdlib `http.server`, a G
 ### Running Tests
 
 ```bash
-# All tests (20 suites, 683 assertions)
+# All tests (26 suites, 704 assertions)
 bash tests/test_scaffold.sh
 
 # Single language
@@ -516,7 +551,7 @@ scaffold/
 ├── agents/                     # Agent specifications
 ├── tasks/                      # Plan, lessons, test registry
 ├── tests/
-│   └── test_scaffold.sh        # Behavior tests (683 assertions)
+│   └── test_scaffold.sh        # Behavior tests (704 assertions)
 └── CLAUDE.md                   # Agent constitution (with placeholders)
 ```
 
