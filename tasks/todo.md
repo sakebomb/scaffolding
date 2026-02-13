@@ -1,38 +1,45 @@
-# Task Plan — P3 Features: Shell Completion, Graceful Rollback, Multi-Language --add
+# Task Plan — P1 Features: --migrate, Smoke Tests, Installable CLI
 
 > Updated: 2026-02-13
-> Branch: `feat/p3-features`
+> Branch: `feat/p1-round2`
 > Status: Complete
-> Issues: #15, #16, #17
+> Issues: #21, #22, #23
 
 ## Objective
 
-Implement three P3-low features: shell completion for scaffold flags, graceful rollback on failure, and multi-language `--add` flag.
+Implement three P1-high features: --migrate for existing projects, end-to-end smoke tests, and a curl-installable CLI.
 
 ## Plan
 
-### Phase 1: Shell Completion (#15)
-- [x] 1. Add `--completions` flag to `parse_flags()` that outputs a bash completion script
-- [x] 2. Completion script covers all flags: `--help`, `--keep`, `--non-interactive`, `--dry-run`, `--update`, `--completions`
-- [x] 3. Add test assertions for `--completions` output
-- [x] 4. Document in README how to enable (`source <(./scaffold --completions)`)
+### Phase 1: `--migrate` for existing projects (#21)
+- [x] 1. Add `--migrate` flag to `parse_flags()`
+- [x] 2. Add `detect_language()` — infer language from existing config files (pyproject.toml → python, etc.)
+- [x] 3. Add `detect_existing_components()` — check which scaffold components already exist
+- [x] 4. Add `run_migrate()` — generate only missing components, never overwrite
+- [x] 5. Append language conventions to CLAUDE.md if not present
+- [x] 6. Skip git init if .git already exists, skip cleanup_artifacts
+- [x] 7. Add test: migrate a bare Python project (only pyproject.toml + src/) → verify CLAUDE.md, skills, agents, tasks added
+- [x] 8. Add test: migrate idempotent (running twice doesn't duplicate)
 
-### Phase 2: Graceful Rollback (#16)
-- [x] 5. Track files created during the run (array of paths)
-- [x] 6. Add `trap` handler on ERR that lists partial files and offers rollback
-- [x] 7. Never delete files that existed before scaffold ran (snapshot pre-existing files)
-- [x] 8. Add test assertions for rollback behavior
+### Phase 2: End-to-end smoke tests (#22)
+- [x] 9. Add `test_smoke_python()` — scaffold python project, run `make lint` + `make fmt` (skips if ruff not installed)
+- [x] 10. Add `test_smoke_go()` — scaffold go project, run `make fmt` + `make lint` (skips lint if golangci-lint not installed)
+- [x] 11. Skip smoke tests gracefully if tooling not installed (warn, don't fail)
+- [x] 12. Wire into test runner as `bash tests/test_scaffold.sh smoke`
 
-### Phase 3: Multi-Language `--add` (#17)
-- [x] 9. Add `--add <language>` flag to `parse_flags()`
-- [x] 10. In add mode: skip project basics/permissions/git init, only layer language config
-- [x] 11. Append language conventions to CLAUDE.md (without duplicating existing sections)
-- [x] 12. Append to .gitignore (not overwrite)
-- [x] 13. Update Makefile with prefixed targets (e.g., `test-ts`, `lint-ts`)
-- [x] 14. Update CI workflow to include both languages
-- [x] 15. Add test assertions for at least one `--add` scenario
+### Phase 3: Installable CLI (#23)
+- [x] 13. Add `--version` flag that prints scaffold version (git tag or hardcoded)
+- [x] 14. Create `install.sh` — curl one-liner that downloads scaffold + templates to `~/.scaffold/` and symlinks to PATH
+- [x] 15. Modify scaffold to locate templates relative to install location (TEMPLATE_DIR resolution)
+- [x] 16. Add install/usage docs to README
 
 ### Phase 4: Polish
-- [x] 16. Update README (new flags, counts)
-- [x] 17. Run full test suite
-- [x] 18. Commit, push, PR
+- [x] 17. Update README (new flags, counts, install instructions)
+- [x] 18. Run full test suite — 683/683 across 20 suites
+- [ ] 19. Commit, push, PR
+
+## Results
+
+- 683 assertions across 20 test suites, all passing
+- New features: `--migrate`, `--version`, `install.sh`, smoke tests
+- Template resolution: `TEMPLATE_DIR` supports both local repo and `~/.scaffold/` installs

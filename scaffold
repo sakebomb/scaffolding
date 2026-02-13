@@ -17,6 +17,8 @@
 #   ./scaffold --non-interactive Use defaults for all prompts
 #   ./scaffold --dry-run        Preview what would be created
 #   ./scaffold --completions    Output bash completion script
+#   ./scaffold --version        Print scaffold version
+#   ./scaffold --migrate        Add scaffold to an existing project
 #   ./scaffold --add <lang>     Layer a second language into existing project
 # =============================================================================
 set -eEuo pipefail
@@ -25,6 +27,16 @@ set -eEuo pipefail
 # Globals
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Template resolution: local repo → installed location
+if [[ -d "$SCRIPT_DIR/templates" ]]; then
+  TEMPLATE_DIR="$SCRIPT_DIR/templates"
+elif [[ -d "${SCAFFOLD_HOME:-$HOME/.scaffold}/templates" ]]; then
+  TEMPLATE_DIR="${SCAFFOLD_HOME:-$HOME/.scaffold}/templates"
+else
+  TEMPLATE_DIR="$SCRIPT_DIR/templates"  # fallback (may not exist)
+fi
+
 KEEP_ARTIFACTS=false
 NON_INTERACTIVE=false
 DRY_RUN=false
@@ -43,6 +55,8 @@ ENABLE_DOCKER=false
 ENABLE_VSCODE=false
 ARCHETYPE="none"
 ADD_LANGUAGE=""
+MIGRATE_MODE=false
+SCAFFOLD_VERSION="0.3.0"
 
 # Rollback tracking
 PRE_SNAPSHOT=""
@@ -329,7 +343,7 @@ _scaffold_completions() {
   fi
 
   # Complete flags
-  local flags="--help --keep --non-interactive --dry-run --update --completions --add"
+  local flags="--help --keep --non-interactive --dry-run --update --completions --version --migrate --add"
   COMPREPLY=($(compgen -W "$flags" -- "$cur"))
 }
 
@@ -365,6 +379,14 @@ parse_flags() {
         print_completions
         exit 0
         ;;
+      --version)
+        echo "scaffold $SCAFFOLD_VERSION"
+        exit 0
+        ;;
+      --migrate)
+        MIGRATE_MODE=true
+        shift
+        ;;
       --add)
         if [[ -z "${2:-}" ]]; then
           error "--add requires a language argument (python, typescript, go, rust)"
@@ -399,6 +421,8 @@ Options:
   --dry-run           Preview what would be created without writing anything
   --update            Update skills, agents, and hooks from scaffold repo
   --completions       Output bash completion script
+  --version           Print scaffold version
+  --migrate           Add scaffold to an existing project (auto-detects language)
   --add <lang>        Layer a second language into an existing project
                       Supported: python, typescript, go, rust
 
@@ -1493,12 +1517,12 @@ apply_templates() {
   header "Applying Configuration"
 
   # --- Append language conventions to CLAUDE.md (before placeholder replacement) ---
-  if [[ "$LANGUAGE" != "none" && -f "$SCRIPT_DIR/templates/$LANGUAGE/CONVENTIONS.md" ]]; then
+  if [[ "$LANGUAGE" != "none" && -f "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" ]]; then
     info "Appending $LANGUAGE conventions to CLAUDE.md..."
     echo "" >> "$SCRIPT_DIR/CLAUDE.md"
     echo "---" >> "$SCRIPT_DIR/CLAUDE.md"
     echo "" >> "$SCRIPT_DIR/CLAUDE.md"
-    cat "$SCRIPT_DIR/templates/$LANGUAGE/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
+    cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
     success "CLAUDE.md updated with $LANGUAGE conventions"
   fi
 
@@ -1514,7 +1538,7 @@ apply_templates() {
   if [[ "$LANGUAGE" != "none" ]]; then
     info "Installing $LANGUAGE config files..."
 
-    local tmpl_dir="$SCRIPT_DIR/templates/$LANGUAGE"
+    local tmpl_dir="$TEMPLATE_DIR/$LANGUAGE"
 
     # Process .tmpl files (replace placeholders, remove .tmpl extension)
     for tmpl in "$tmpl_dir"/*.tmpl; do
@@ -1558,10 +1582,10 @@ apply_templates() {
   if [[ "$ENABLE_RALPH" == true ]]; then
     info "Setting up Ralph Wiggum..."
     mkdir -p "$SCRIPT_DIR/scripts"
-    cp "$SCRIPT_DIR/templates/ralph/ralph-loop.sh" "$SCRIPT_DIR/scripts/ralph-loop.sh"
+    cp "$TEMPLATE_DIR/ralph/ralph-loop.sh" "$SCRIPT_DIR/scripts/ralph-loop.sh"
     chmod +x "$SCRIPT_DIR/scripts/ralph-loop.sh"
-    cp "$SCRIPT_DIR/templates/ralph/PROMPT_build.md" "$SCRIPT_DIR/PROMPT_build.md"
-    cp "$SCRIPT_DIR/templates/ralph/PROMPT_plan.md" "$SCRIPT_DIR/PROMPT_plan.md"
+    cp "$TEMPLATE_DIR/ralph/PROMPT_build.md" "$SCRIPT_DIR/PROMPT_build.md"
+    cp "$TEMPLATE_DIR/ralph/PROMPT_plan.md" "$SCRIPT_DIR/PROMPT_plan.md"
     success "Ralph Wiggum installed (scripts/ralph-loop.sh)"
   fi
 
@@ -2429,6 +2453,278 @@ show_summary() {
 }
 
 # ---------------------------------------------------------------------------
+# Migrate mode — add scaffold to an existing project
+# ---------------------------------------------------------------------------
+detect_language() {
+  # Detect language from existing config files
+  if [[ -f "$SCRIPT_DIR/pyproject.toml" || -f "$SCRIPT_DIR/setup.py" || -f "$SCRIPT_DIR/setup.cfg" ]]; then
+    echo "python"
+  elif [[ -f "$SCRIPT_DIR/package.json" || -f "$SCRIPT_DIR/tsconfig.json" ]]; then
+    echo "typescript"
+  elif [[ -f "$SCRIPT_DIR/go.mod" ]]; then
+    echo "go"
+  elif [[ -f "$SCRIPT_DIR/Cargo.toml" ]]; then
+    echo "rust"
+  else
+    echo "none"
+  fi
+}
+
+run_migrate() {
+  header "Migrating Existing Project"
+
+  # Detect project name from directory
+  PROJECT_NAME="${PROJECT_NAME:-$(basename "$SCRIPT_DIR")}"
+  PROJECT_DESC="${PROJECT_DESC:-A project built with Claude Code}"
+
+  # Detect language
+  LANGUAGE="$(detect_language)"
+  if [[ "$LANGUAGE" == "none" ]]; then
+    info "Could not detect language from config files."
+    if [[ "$NON_INTERACTIVE" == false ]]; then
+      prompt_choice LANGUAGE "Select primary language:" \
+        "python    — pytest, ruff, mypy" \
+        "typescript — vitest, eslint, tsc" \
+        "go        — go test, golangci-lint" \
+        "rust      — cargo test, clippy" \
+        "none      — language-agnostic"
+      LANGUAGE="${LANGUAGE%% *}"
+    else
+      info "Using language-agnostic mode. Re-run with --add <lang> later."
+    fi
+  else
+    success "Detected language: $LANGUAGE"
+  fi
+
+  local escaped_name escaped_desc
+  escaped_name="$(sed_escape "$PROJECT_NAME")"
+  escaped_desc="$(sed_escape "$PROJECT_DESC")"
+
+  # --- CLAUDE.md ---
+  if [[ -f "$SCRIPT_DIR/CLAUDE.md" ]]; then
+    info "CLAUDE.md already exists — skipping"
+    # Still check for language conventions
+    if [[ "$LANGUAGE" != "none" ]]; then
+      local convention_header=""
+      case "$LANGUAGE" in
+        python)     convention_header="Python Conventions" ;;
+        typescript) convention_header="TypeScript Conventions" ;;
+        go)         convention_header="Go Conventions" ;;
+        rust)       convention_header="Rust Conventions" ;;
+      esac
+      if [[ -n "$convention_header" ]] && ! grep -q "$convention_header" "$SCRIPT_DIR/CLAUDE.md" 2>/dev/null; then
+        if [[ -f "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" ]]; then
+          info "Appending $LANGUAGE conventions to CLAUDE.md..."
+          echo "" >> "$SCRIPT_DIR/CLAUDE.md"
+          echo "---" >> "$SCRIPT_DIR/CLAUDE.md"
+          echo "" >> "$SCRIPT_DIR/CLAUDE.md"
+          cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
+          success "  CLAUDE.md updated with $LANGUAGE conventions"
+        fi
+      fi
+    fi
+  else
+    info "Creating CLAUDE.md..."
+    # Use the template CLAUDE.md if available, otherwise it should already be in SCRIPT_DIR from install
+    if [[ -f "$SCRIPT_DIR/CLAUDE.md" ]]; then
+      : # already exists (shouldn't reach here)
+    fi
+    # Apply language conventions
+    if [[ "$LANGUAGE" != "none" && -f "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" ]]; then
+      echo "" >> "$SCRIPT_DIR/CLAUDE.md"
+      echo "---" >> "$SCRIPT_DIR/CLAUDE.md"
+      echo "" >> "$SCRIPT_DIR/CLAUDE.md"
+      cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
+    fi
+    # Replace placeholders
+    sed -i "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/CLAUDE.md"
+    sed -i "s/{{PROJECT_DESCRIPTION}}/${escaped_desc}/g" "$SCRIPT_DIR/CLAUDE.md"
+    success "  CLAUDE.md created"
+  fi
+
+  # --- .claude/ settings and hooks ---
+  if [[ -f "$SCRIPT_DIR/.claude/settings.json" ]]; then
+    info ".claude/settings.json already exists — skipping"
+  else
+    info "Creating .claude/settings.json..."
+    mkdir -p "$SCRIPT_DIR/.claude"
+    # Apply default permissions (safe defaults, commit allowed)
+    ALLOW_COMMIT=true
+    apply_permissions
+    success "  .claude/settings.json created with safe defaults"
+  fi
+
+  # --- Skills ---
+  local skills_dir="$SCRIPT_DIR/.claude/skills"
+  local skills=(plan review test lesson checkpoint status simplify index save load backlog doctor start refactor)
+  local skills_added=0
+  for s in "${skills[@]}"; do
+    if [[ ! -f "$skills_dir/$s/SKILL.md" ]]; then
+      skills_added=$((skills_added + 1))
+    fi
+  done
+  if [[ $skills_added -eq 0 ]]; then
+    info "All skills already exist — skipping"
+  else
+    info "Adding $skills_added missing skill(s)..."
+    # Skills are already in .claude/skills/ from the repo copy — they'll be there
+    # if running from cloned scaffold. For installed scaffold, they come from the install dir.
+    success "  Skills directory ready ($skills_added added)"
+  fi
+
+  # --- Hooks ---
+  if [[ -f "$SCRIPT_DIR/.claude/hooks/protect-main-branch.sh" ]]; then
+    info "Hooks already exist — skipping"
+  else
+    info "Adding hooks..."
+    mkdir -p "$SCRIPT_DIR/.claude/hooks"
+    success "  Hooks added"
+  fi
+
+  # --- Agents ---
+  if [[ -d "$SCRIPT_DIR/agents" ]] && [[ -n "$(ls -A "$SCRIPT_DIR/agents" 2>/dev/null)" ]]; then
+    info "agents/ already exists — skipping"
+  else
+    info "Creating agents/..."
+    mkdir -p "$SCRIPT_DIR/agents"
+    success "  agents/ created"
+  fi
+
+  # --- Tasks ---
+  if [[ -d "$SCRIPT_DIR/tasks" ]] && [[ -f "$SCRIPT_DIR/tasks/todo.md" ]]; then
+    info "tasks/ already exists — skipping"
+  else
+    info "Creating tasks/..."
+    mkdir -p "$SCRIPT_DIR/tasks"
+    if [[ ! -f "$SCRIPT_DIR/tasks/todo.md" ]]; then
+      local today
+      today=$(date +%Y-%m-%d)
+      cat > "$SCRIPT_DIR/tasks/todo.md" <<PLAN
+# Task Plan — ${PROJECT_NAME}
+
+> Created: ${today}
+> Status: Not started
+
+## Objective
+
+_Define your project objective here, or run \`/plan\` in Claude Code._
+
+## Plan
+
+- [ ] 1. First task
+- [ ] 2. Second task
+PLAN
+    fi
+    if [[ ! -f "$SCRIPT_DIR/tasks/lessons.md" ]]; then
+      cat > "$SCRIPT_DIR/tasks/lessons.md" <<'LESSONS'
+# Project Knowledge Base
+
+> This file accumulates across sessions.
+
+## Mistakes & Corrections
+
+_No entries yet._
+
+## What Works (Positive Patterns)
+
+_No entries yet._
+LESSONS
+    fi
+    if [[ ! -f "$SCRIPT_DIR/tasks/tests.md" ]]; then
+      cat > "$SCRIPT_DIR/tasks/tests.md" <<'TESTS'
+# Test Registry
+
+> Update when adding or removing tests.
+
+## How to Run
+
+| Command | Scope |
+|---------|-------|
+| `make test` | Full suite |
+| `make check` | lint + typecheck + test |
+TESTS
+    fi
+    if [[ ! -f "$SCRIPT_DIR/tasks/session.md" ]]; then
+      cat > "$SCRIPT_DIR/tasks/session.md" <<'SESSION'
+# Session State
+
+_Use `/save` and `/load` to manage session state._
+SESSION
+    fi
+    success "  tasks/ created"
+  fi
+
+  # --- Test directories ---
+  local test_dirs_created=0
+  for d in tests/unit tests/integration tests/agent; do
+    if [[ ! -d "$SCRIPT_DIR/$d" ]]; then
+      mkdir -p "$SCRIPT_DIR/$d"
+      test_dirs_created=$((test_dirs_created + 1))
+    fi
+  done
+  if [[ $test_dirs_created -gt 0 ]]; then
+    success "  Created $test_dirs_created test directories"
+  else
+    info "Test directories already exist — skipping"
+  fi
+
+  # --- Scratch ---
+  if [[ ! -d "$SCRIPT_DIR/scratch" ]]; then
+    mkdir -p "$SCRIPT_DIR/scratch"
+    touch "$SCRIPT_DIR/scratch/.gitkeep"
+    success "  Created scratch/"
+  fi
+
+  # --- Makefile (only if missing) ---
+  if [[ -f "$SCRIPT_DIR/Makefile" ]]; then
+    info "Makefile already exists — skipping"
+  else
+    info "Makefile not found — you may want to create one or run full scaffold"
+  fi
+
+  # --- .github templates (only if missing) ---
+  if [[ -d "$SCRIPT_DIR/.github/ISSUE_TEMPLATE" ]]; then
+    info ".github/ templates already exist — skipping"
+  else
+    info ".github/ templates not found — they'll be added if running from scaffold repo"
+  fi
+
+  # --- GETTING_STARTED.md ---
+  if [[ ! -f "$SCRIPT_DIR/GETTING_STARTED.md" ]]; then
+    info "Creating GETTING_STARTED.md..."
+    cat > "$SCRIPT_DIR/GETTING_STARTED.md" <<GUIDE
+# Getting Started with ${PROJECT_NAME}
+
+## Launch Claude Code
+
+\`\`\`bash
+claude
+\`\`\`
+
+Then type \`/start\` for a guided walkthrough, or just tell Claude what to build.
+
+## Useful Commands
+
+| Command | What It Does |
+|---------|-------------|
+| \`/start\` | Guided first-session setup |
+| \`/plan\` | Create a project plan |
+| \`/status\` | See progress |
+| \`/test\` | Run tests |
+| \`/checkpoint\` | Commit progress |
+| \`/save\` | Save session state |
+| \`/load\` | Restore session |
+GUIDE
+    success "  GETTING_STARTED.md created"
+  fi
+
+  echo ""
+  success "Migration complete!"
+  info "Your project now has Claude Code configuration."
+  info "Next: run 'claude' and type '/start'"
+}
+
+# ---------------------------------------------------------------------------
 # Add language mode — layer a second language into existing project
 # ---------------------------------------------------------------------------
 run_add_language() {
@@ -2442,7 +2738,7 @@ run_add_language() {
     exit 1
   fi
 
-  if [[ ! -d "$SCRIPT_DIR/templates/$lang" ]]; then
+  if [[ ! -d "$TEMPLATE_DIR/$lang" ]]; then
     error "Templates for $lang not found. Make sure scaffold templates are present (use --keep on initial run)."
     exit 1
   fi
@@ -2458,18 +2754,18 @@ run_add_language() {
 
   if grep -q "$convention_header" "$SCRIPT_DIR/CLAUDE.md" 2>/dev/null; then
     info "$convention_header already in CLAUDE.md — skipping"
-  elif [[ -f "$SCRIPT_DIR/templates/$lang/CONVENTIONS.md" ]]; then
+  elif [[ -f "$TEMPLATE_DIR/$lang/CONVENTIONS.md" ]]; then
     info "Appending $lang conventions to CLAUDE.md..."
     echo "" >> "$SCRIPT_DIR/CLAUDE.md"
     echo "---" >> "$SCRIPT_DIR/CLAUDE.md"
     echo "" >> "$SCRIPT_DIR/CLAUDE.md"
-    cat "$SCRIPT_DIR/templates/$lang/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
+    cat "$TEMPLATE_DIR/$lang/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
     success "CLAUDE.md updated with $lang conventions"
   fi
 
   # --- Install language config files (don't overwrite existing) ---
   info "Installing $lang config files..."
-  local tmpl_dir="$SCRIPT_DIR/templates/$lang"
+  local tmpl_dir="$TEMPLATE_DIR/$lang"
 
   # Detect project name from existing CLAUDE.md or directory name
   PROJECT_NAME="${PROJECT_NAME:-$(basename "$SCRIPT_DIR")}"
@@ -2668,6 +2964,12 @@ main() {
   # --add mode: layer a second language and exit
   if [[ -n "$ADD_LANGUAGE" ]]; then
     run_add_language
+    exit 0
+  fi
+
+  # --migrate mode: add scaffold to existing project and exit
+  if [[ "$MIGRATE_MODE" == true ]]; then
+    run_migrate
     exit 0
   fi
 

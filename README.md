@@ -21,7 +21,21 @@ The goal: zero warm-up time. Your first Claude Code session starts productive.
 
 ## Quick Start
 
-### Option A: GitHub Template (Recommended)
+### Option A: Install CLI (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sakebomb/scaffold/main/install.sh | bash
+```
+
+Then from any directory:
+
+```bash
+mkdir my-project && cd my-project
+scaffold
+claude
+```
+
+### Option B: GitHub Template
 
 1. Click **"Use this template"** at the top of this repo
 2. Name your new repository and create it
@@ -34,7 +48,7 @@ cd my-project
 claude
 ```
 
-### Option B: Git Clone
+### Option C: Git Clone
 
 ```bash
 git clone https://github.com/sakebomb/scaffold.git my-project
@@ -139,6 +153,23 @@ Layer a second language into an existing scaffolded project:
 ```
 
 This appends TypeScript conventions to `CLAUDE.md`, adds config files (without overwriting existing ones), updates `.gitignore`, adds prefixed Makefile targets (`test-ts`, `lint-ts`, `fmt-ts`, `typecheck-ts`), and updates the CI workflow. Requires templates to be present (use `--keep` on initial run).
+
+### Migrate Existing Projects
+
+Add Claude Code configuration to a project that already has code:
+
+```bash
+cd existing-project
+scaffold --migrate
+```
+
+This auto-detects your language (from `pyproject.toml`, `package.json`, `go.mod`, or `Cargo.toml`), then adds only what's missing — `CLAUDE.md`, skills, hooks, agents, tasks, test structure — without overwriting any existing files. Running twice is safe (idempotent).
+
+### Version
+
+```bash
+scaffold --version
+```
 
 ### Keeping Scaffold Artifacts
 
@@ -445,7 +476,7 @@ Each archetype is language-aware — a Python API uses stdlib `http.server`, a G
 ### Running Tests
 
 ```bash
-# All tests (15 suites, 667 assertions)
+# All tests (20 suites, 683 assertions)
 bash tests/test_scaffold.sh
 
 # Single language
@@ -462,6 +493,12 @@ bash tests/test_scaffold.sh dry-run
 bash tests/test_scaffold.sh completions
 bash tests/test_scaffold.sh rollback
 bash tests/test_scaffold.sh add-language
+bash tests/test_scaffold.sh version
+bash tests/test_scaffold.sh migrate
+bash tests/test_scaffold.sh migrate-idem
+
+# Smoke tests (require language tooling installed)
+bash tests/test_scaffold.sh smoke
 ```
 
 ### Project Structure for Contributors
@@ -469,6 +506,7 @@ bash tests/test_scaffold.sh add-language
 ```
 scaffold/
 ├── scaffold                    # Main init script (bash)
+├── install.sh                  # curl-installable CLI installer
 ├── templates/                  # Language templates + Ralph Wiggum
 ├── .claude/                    # Claude Code configuration
 │   ├── settings.json           # Permission tiers
@@ -478,7 +516,7 @@ scaffold/
 ├── agents/                     # Agent specifications
 ├── tasks/                      # Plan, lessons, test registry
 ├── tests/
-│   └── test_scaffold.sh        # Behavior tests (667 assertions)
+│   └── test_scaffold.sh        # Behavior tests (683 assertions)
 └── CLAUDE.md                   # Agent constitution (with placeholders)
 ```
 
