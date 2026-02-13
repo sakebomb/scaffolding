@@ -1168,6 +1168,304 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# .scaffoldrc defaults
+# ---------------------------------------------------------------------------
+test_scaffoldrc() {
+  echo ""
+  echo -e "${BOLD}Test: .scaffoldrc defaults${RESET}"
+
+  setup_test "scaffoldrc"
+
+  # Create a scaffoldrc that sets LANGUAGE=go
+  local rc_file="$WORK_DIR/.scaffoldrc"
+  cat > "$rc_file" <<'RCEOF'
+# Test scaffoldrc
+LANGUAGE=go
+ENABLE_VSCODE=true
+RCEOF
+
+  # Run scaffold with SCAFFOLDRC pointing to our file
+  export SCAFFOLDRC="$rc_file"
+  run_scaffold > /dev/null
+  unset SCAFFOLDRC
+
+  # Should produce a Go project (not Python default)
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/go.mod" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} scaffoldrc LANGUAGE=go did not produce go.mod"
+  fi
+
+  # Should NOT have Python files
+  TOTAL=$((TOTAL + 1))
+  if [[ ! -f "$WORK_DIR/pyproject.toml" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} scaffoldrc LANGUAGE=go should not produce pyproject.toml"
+  fi
+
+  # VS Code settings should exist (ENABLE_VSCODE=true)
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/.vscode/settings.json" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} scaffoldrc ENABLE_VSCODE=true should produce .vscode/settings.json"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}.scaffoldrc: done${RESET}"
+}
+
+test_scaffoldrc_override() {
+  echo ""
+  echo -e "${BOLD}Test: CLI overrides .scaffoldrc${RESET}"
+
+  setup_test "scaffoldrc-override"
+
+  # scaffoldrc says go, but we'll verify non-interactive default (python) wins
+  # when scaffoldrc is not present
+  run_scaffold > /dev/null
+
+  # Default non-interactive scaffold (no scaffoldrc) should be Python
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/pyproject.toml" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Default scaffold without scaffoldrc should produce pyproject.toml"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}.scaffoldrc override: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# Zsh completions
+# ---------------------------------------------------------------------------
+test_completions_zsh() {
+  echo ""
+  echo -e "${BOLD}Test: --completions zsh${RESET}"
+
+  setup_test "completions-zsh"
+
+  local output
+  output="$(cd "$WORK_DIR" && ./scaffold --completions zsh 2>&1)"
+
+  # Should contain #compdef
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -qF -- "#compdef"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions zsh should contain #compdef"
+  fi
+
+  # Should contain _arguments
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -qF -- "_arguments"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions zsh should contain _arguments"
+  fi
+
+  # Should list all major flags
+  TOTAL=$((TOTAL + 1))
+  local missing=0
+  for flag in "--help" "--keep" "--migrate" "--add" "--version" "--dir" "--save-defaults"; do
+    if ! echo "$output" | grep -qF -- "$flag"; then
+      missing=$((missing + 1))
+    fi
+  done
+  if [[ $missing -eq 0 ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions zsh missing $missing flags"
+  fi
+
+  # Should NOT contain bash-specific 'complete -F'
+  TOTAL=$((TOTAL + 1))
+  if ! echo "$output" | grep -qF -- "complete -F"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions zsh should not contain bash 'complete -F'"
+  fi
+
+  # No project should be created
+  TOTAL=$((TOTAL + 1))
+  if [[ ! -d "$WORK_DIR/.git" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions zsh should not create project"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}--completions zsh: done${RESET}"
+}
+
+test_completions_bash_explicit() {
+  echo ""
+  echo -e "${BOLD}Test: --completions bash (explicit)${RESET}"
+
+  setup_test "completions-bash"
+
+  local output
+  output="$(cd "$WORK_DIR" && ./scaffold --completions bash 2>&1)"
+
+  # Should contain bash-specific 'complete -F'
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -qF -- "complete -F"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions bash should contain 'complete -F'"
+  fi
+
+  # Should contain new flags
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -qF -- "--save-defaults"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions bash should list --save-defaults"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}--completions bash: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# Monorepo --add --dir
+# ---------------------------------------------------------------------------
+test_add_dir() {
+  echo ""
+  echo -e "${BOLD}Test: --add python --dir backend${RESET}"
+
+  setup_test "add-dir"
+
+  # First scaffold a base TypeScript project with --keep (needed for --add)
+  force_language "typescript"
+  # Inject --keep so scaffold + templates are preserved
+  sed -i 's/KEEP_ARTIFACTS=false/KEEP_ARTIFACTS=true/' "$WORK_DIR/scaffold"
+  run_scaffold > /dev/null
+
+  # Now add Python in a subdirectory
+  (cd "$WORK_DIR" && ./scaffold --add python --dir backend 2>&1) > /dev/null
+
+  # Config files should be in backend/
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/backend/pyproject.toml" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --add python --dir backend should create backend/pyproject.toml"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/backend/ruff.toml" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --add python --dir backend should create backend/ruff.toml"
+  fi
+
+  # Original TS files should still be at root
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/tsconfig.json" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Root tsconfig.json should still exist"
+  fi
+
+  # Makefile should have dir-prefixed targets
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "test-backend-py:" "$WORK_DIR/Makefile" 2>/dev/null; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Makefile should contain test-backend-py target"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "lint-backend-py:" "$WORK_DIR/Makefile" 2>/dev/null; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Makefile should contain lint-backend-py target"
+  fi
+
+  # Makefile targets should cd into backend
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "cd backend" "$WORK_DIR/Makefile" 2>/dev/null; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Makefile targets should cd into backend"
+  fi
+
+  # CLAUDE.md should have Python conventions
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "Python Conventions" "$WORK_DIR/CLAUDE.md" 2>/dev/null; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} CLAUDE.md should contain Python Conventions"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}--add --dir: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# .scaffold-version tracking
+# ---------------------------------------------------------------------------
+test_scaffold_version_file() {
+  echo ""
+  echo -e "${BOLD}Test: .scaffold-version file${RESET}"
+
+  setup_test "version-file"
+  run_scaffold > /dev/null
+
+  # .scaffold-version should exist
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/.scaffold-version" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} .scaffold-version should exist after scaffold"
+  fi
+
+  # Should contain version=
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "version=" "$WORK_DIR/.scaffold-version" 2>/dev/null; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} .scaffold-version should contain version="
+  fi
+
+  # Should contain date=
+  TOTAL=$((TOTAL + 1))
+  if grep -qF -- "date=" "$WORK_DIR/.scaffold-version" 2>/dev/null; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} .scaffold-version should contain date="
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}.scaffold-version: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
 # Smoke tests — actually run lint/fmt on scaffolded projects
 # ---------------------------------------------------------------------------
 test_smoke_python() {
@@ -1307,6 +1605,12 @@ main() {
     version)        test_version ;;
     migrate)        test_migrate ;;
     migrate-idem)   test_migrate_idempotent ;;
+    scaffoldrc)     test_scaffoldrc ;;
+    scaffoldrc-ovr) test_scaffoldrc_override ;;
+    completions-zsh) test_completions_zsh ;;
+    completions-bash) test_completions_bash_explicit ;;
+    add-dir)        test_add_dir ;;
+    version-file)   test_scaffold_version_file ;;
     smoke-python)   test_smoke_python ;;
     smoke-go)       test_smoke_go ;;
     smoke)
@@ -1338,12 +1642,18 @@ main() {
       test_version
       test_migrate
       test_migrate_idempotent
+      test_scaffoldrc
+      test_scaffoldrc_override
+      test_completions_zsh
+      test_completions_bash_explicit
+      test_add_dir
+      test_scaffold_version_file
       test_smoke_python
       test_smoke_go
       ;;
     *)
       echo "Unknown test: $filter"
-      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|completions|rollback|add-language|version|migrate|migrate-idem|smoke|smoke-python|smoke-go|archetypes|all]"
+      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|completions|rollback|add-language|version|migrate|migrate-idem|scaffoldrc|scaffoldrc-ovr|completions-zsh|completions-bash|add-dir|version-file|smoke|smoke-python|smoke-go|archetypes|all]"
       exit 1
       ;;
   esac
