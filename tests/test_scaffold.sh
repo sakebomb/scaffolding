@@ -672,6 +672,293 @@ test_dry_run() {
 }
 
 # ---------------------------------------------------------------------------
+# Test: --completions outputs a valid bash completion script
+# ---------------------------------------------------------------------------
+test_completions() {
+  echo -e "\n${BOLD}Test: --completions flag${RESET}"
+  setup_test "completions"
+
+  local output
+  output="$(cd "$WORK_DIR" && ./scaffold --completions 2>&1)"
+  cd "$SCRIPT_DIR"
+
+  # Should contain completion function
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "_scaffold_completions"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions should define _scaffold_completions function"
+  fi
+
+  # Should contain all flags
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -qF -- "--help"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions should include --help flag"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -qF -- "--add"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions should include --add flag"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -qF -- "--dry-run"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions should include --dry-run flag"
+  fi
+
+  # Should contain language options for --add
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "python typescript go rust"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions should include language options for --add"
+  fi
+
+  # Should contain 'complete' command
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "^complete -F"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions should register completion with 'complete -F'"
+  fi
+
+  # Should NOT have initialized a project
+  TOTAL=$((TOTAL + 1))
+  if [[ ! -d "$WORK_DIR/.git" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions should not initialize git"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}--completions: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# Test: Rollback on failure cleans up partial state
+# ---------------------------------------------------------------------------
+test_rollback() {
+  echo -e "\n${BOLD}Test: Graceful rollback${RESET}"
+  setup_test "rollback"
+
+  # Inject a failure into apply_templates to trigger rollback
+  # We'll add a failing command right after SECURITY.md generation
+  sed -i '/success "SECURITY.md generated"/a\
+  false  # Injected failure for rollback test' "$WORK_DIR/scaffold"
+
+  # Run scaffold (it should fail and auto-rollback in non-interactive mode)
+  local output exit_code=0
+  output="$(cd "$WORK_DIR" && ./scaffold --non-interactive 2>&1)" || exit_code=$?
+  cd "$SCRIPT_DIR"
+
+  # Should have failed
+  TOTAL=$((TOTAL + 1))
+  if [[ $exit_code -ne 0 ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Scaffold should have failed with injected error"
+  fi
+
+  # Should have printed rollback message
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "Scaffold failed"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Should print 'Scaffold failed' message"
+  fi
+
+  # In non-interactive mode, should auto-clean
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "cleaning up"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Should auto-clean in non-interactive mode"
+  fi
+
+  # Should NOT have .git (init_git never ran)
+  TOTAL=$((TOTAL + 1))
+  if [[ ! -d "$WORK_DIR/.git" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Failed scaffold should not have .git directory"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}Rollback: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# Test: --add layers a second language
+# ---------------------------------------------------------------------------
+test_add_language() {
+  echo -e "\n${BOLD}Test: --add typescript (on python project)${RESET}"
+  setup_test "add-lang"
+
+  # First: scaffold a python project with --keep (so templates remain)
+  cd "$WORK_DIR" && ./scaffold --non-interactive --keep > /dev/null 2>&1
+  cd "$SCRIPT_DIR"
+
+  # Verify it's a python project first
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/pyproject.toml" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Base project should have pyproject.toml"
+  fi
+
+  # Now add typescript
+  cd "$WORK_DIR" && ./scaffold --add typescript > /dev/null 2>&1
+  cd "$SCRIPT_DIR"
+
+  # Should have TypeScript config files
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/package.json" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --add typescript should create package.json"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/tsconfig.json" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --add typescript should create tsconfig.json"
+  fi
+
+  # Should NOT overwrite pyproject.toml
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/pyproject.toml" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --add should not remove existing pyproject.toml"
+  fi
+
+  # CLAUDE.md should have both conventions
+  TOTAL=$((TOTAL + 1))
+  if grep -q "Python Conventions" "$WORK_DIR/CLAUDE.md"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} CLAUDE.md should still contain Python conventions"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -q "TypeScript Conventions" "$WORK_DIR/CLAUDE.md"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} CLAUDE.md should contain TypeScript conventions after --add"
+  fi
+
+  # .gitignore should have both language entries
+  TOTAL=$((TOTAL + 1))
+  if grep -q "__pycache__" "$WORK_DIR/.gitignore"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} .gitignore should still have Python entries"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -q "node_modules" "$WORK_DIR/.gitignore"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} .gitignore should have TypeScript entries after --add"
+  fi
+
+  # Makefile should have prefixed targets
+  TOTAL=$((TOTAL + 1))
+  if grep -q "^test-ts:" "$WORK_DIR/Makefile"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Makefile should have test-ts target after --add"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -q "^lint-ts:" "$WORK_DIR/Makefile"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Makefile should have lint-ts target after --add"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -q "^fmt-ts:" "$WORK_DIR/Makefile"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Makefile should have fmt-ts target after --add"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if grep -q "^typecheck-ts:" "$WORK_DIR/Makefile"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Makefile should have typecheck-ts target after --add"
+  fi
+
+  # CI workflow should reference TypeScript
+  TOTAL=$((TOTAL + 1))
+  if grep -q "Node.js" "$WORK_DIR/.github/workflows/ci.yml"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} CI workflow should reference Node.js after --add typescript"
+  fi
+
+  # Running --add again should not duplicate
+  cd "$WORK_DIR" && ./scaffold --add typescript > /dev/null 2>&1
+  cd "$SCRIPT_DIR"
+
+  TOTAL=$((TOTAL + 1))
+  local ts_count
+  ts_count="$(grep -c "TypeScript Conventions" "$WORK_DIR/CLAUDE.md" || true)"
+  if [[ "$ts_count" -eq 1 ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Running --add twice should not duplicate conventions (found $ts_count)"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  local target_count
+  target_count="$(grep -c "^test-ts:" "$WORK_DIR/Makefile" || true)"
+  if [[ "$target_count" -eq 1 ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Running --add twice should not duplicate Makefile targets (found $target_count)"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}--add typescript: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
@@ -692,6 +979,9 @@ main() {
     ts-cli)         test_typescript_cli ;;
     go-library)     test_go_library ;;
     rust-library)   test_rust_library ;;
+    completions)    test_completions ;;
+    rollback)       test_rollback ;;
+    add-language)   test_add_language ;;
     archetypes)
       test_python_api
       test_typescript_cli
@@ -711,10 +1001,13 @@ main() {
       test_typescript_cli
       test_go_library
       test_rust_library
+      test_completions
+      test_rollback
+      test_add_language
       ;;
     *)
       echo "Unknown test: $filter"
-      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|archetypes|all]"
+      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|completions|rollback|add-language|archetypes|all]"
       exit 1
       ;;
   esac

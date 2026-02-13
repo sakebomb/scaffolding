@@ -119,9 +119,30 @@ Preview what scaffold would create without writing anything:
 ./scaffold --non-interactive --dry-run
 ```
 
+### Shell Completion
+
+Enable tab-completion for scaffold flags:
+
+```bash
+source <(./scaffold --completions)
+
+# Or persist it:
+./scaffold --completions >> ~/.bashrc
+```
+
+### Multi-Language Projects
+
+Layer a second language into an existing scaffolded project:
+
+```bash
+./scaffold --add typescript
+```
+
+This appends TypeScript conventions to `CLAUDE.md`, adds config files (without overwriting existing ones), updates `.gitignore`, adds prefixed Makefile targets (`test-ts`, `lint-ts`, `fmt-ts`, `typecheck-ts`), and updates the CI workflow. Requires templates to be present (use `--keep` on initial run).
+
 ### Keeping Scaffold Artifacts
 
-By default, the `scaffold` script and `templates/` directory are removed after init. To preserve them:
+By default, the `scaffold` script and `templates/` directory are removed after init. To preserve them (required for `--add` and `--update`):
 
 ```bash
 ./scaffold --keep
@@ -364,6 +385,10 @@ When enabled during `./scaffold` init, adds production-ready Docker support:
 - **Dockerfile** — language-specific with multi-stage builds (Go, Rust, TypeScript) or slim images (Python)
 - **docker-compose.yml** — app service with commented-out database example
 
+### Graceful Rollback
+
+If scaffold fails mid-run, it automatically detects files created during the run and offers to clean them up. In non-interactive mode, cleanup happens automatically. Pre-existing files are never deleted.
+
 ### Updating Existing Projects
 
 If scaffold improves after you've already scaffolded a project, you can pull updates:
@@ -420,7 +445,7 @@ Each archetype is language-aware — a Python API uses stdlib `http.server`, a G
 ### Running Tests
 
 ```bash
-# All tests (12 suites, 641 assertions)
+# All tests (15 suites, 667 assertions)
 bash tests/test_scaffold.sh
 
 # Single language
@@ -433,6 +458,10 @@ bash tests/test_scaffold.sh none
 # Feature tests
 bash tests/test_scaffold.sh keep
 bash tests/test_scaffold.sh permissions
+bash tests/test_scaffold.sh dry-run
+bash tests/test_scaffold.sh completions
+bash tests/test_scaffold.sh rollback
+bash tests/test_scaffold.sh add-language
 ```
 
 ### Project Structure for Contributors
@@ -449,7 +478,7 @@ scaffold/
 ├── agents/                     # Agent specifications
 ├── tasks/                      # Plan, lessons, test registry
 ├── tests/
-│   └── test_scaffold.sh        # Behavior tests (641 assertions)
+│   └── test_scaffold.sh        # Behavior tests (667 assertions)
 └── CLAUDE.md                   # Agent constitution (with placeholders)
 ```
 

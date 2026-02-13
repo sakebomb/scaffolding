@@ -16,8 +16,10 @@
 #   ./scaffold --keep           Don't remove scaffold artifacts after init
 #   ./scaffold --non-interactive Use defaults for all prompts
 #   ./scaffold --dry-run        Preview what would be created
+#   ./scaffold --completions    Output bash completion script
+#   ./scaffold --add <lang>     Layer a second language into existing project
 # =============================================================================
-set -euo pipefail
+set -eEuo pipefail
 
 # ---------------------------------------------------------------------------
 # Globals
@@ -40,6 +42,10 @@ SETUP_KANBAN=false
 ENABLE_DOCKER=false
 ENABLE_VSCODE=false
 ARCHETYPE="none"
+ADD_LANGUAGE=""
+
+# Rollback tracking
+PRE_SNAPSHOT=""
 
 # Colors (disabled if not a terminal)
 if [[ -t 1 ]]; then
@@ -62,6 +68,74 @@ success() { echo -e "${GREEN}✓${RESET} $*"; }
 warn()    { echo -e "${YELLOW}⚠${RESET} $*"; }
 error()   { echo -e "${RED}✗${RESET} $*" >&2; }
 header()  { echo -e "\n${BOLD}═══ $* ═══${RESET}\n"; }
+
+# Snapshot all files that exist before scaffold modifies anything
+snapshot_pre_existing() {
+  PRE_SNAPSHOT="$(mktemp)"
+  find "$SCRIPT_DIR" -not -path "$SCRIPT_DIR/.git/*" -not -name '.git' | sort > "$PRE_SNAPSHOT"
+}
+
+# Rollback handler — called on ERR if trap is set
+rollback_on_failure() {
+  local exit_code=$?
+  echo ""
+  error "Scaffold failed (exit code: $exit_code)"
+  echo ""
+
+  # Find files created since snapshot
+  local post_snapshot
+  post_snapshot="$(mktemp)"
+  find "$SCRIPT_DIR" -not -path "$SCRIPT_DIR/.git/*" -not -name '.git' | sort > "$post_snapshot"
+  local new_files
+  new_files="$(comm -13 "$PRE_SNAPSHOT" "$post_snapshot" || true)"
+  rm -f "$post_snapshot"
+
+  if [[ -z "$new_files" ]]; then
+    warn "No new files were created before the failure."
+    rm -f "$PRE_SNAPSHOT"
+    exit "$exit_code"
+  fi
+
+  warn "The following files were created before the failure:"
+  echo "$new_files" | while IFS= read -r f; do
+    echo "  ${f#"$SCRIPT_DIR"/}"
+  done
+  echo ""
+
+  if [[ "$NON_INTERACTIVE" == true ]]; then
+    warn "Non-interactive mode: cleaning up created files automatically."
+    perform_rollback "$new_files"
+    rm -f "$PRE_SNAPSHOT"
+    exit "$exit_code"
+  fi
+
+  local answer="n"
+  read -rp "Roll back created files? [y/N]: " answer
+  if [[ "${answer,,}" == "y" || "${answer,,}" == "yes" ]]; then
+    perform_rollback "$new_files"
+  else
+    warn "Partial files left in place. Review manually."
+  fi
+  rm -f "$PRE_SNAPSHOT"
+  exit "$exit_code"
+}
+
+# Remove files created during the run, deepest first
+perform_rollback() {
+  local new_files="$1"
+  local removed=0
+  # Sort in reverse so deeper paths are removed first
+  echo "$new_files" | sort -r | while IFS= read -r f; do
+    if [[ -f "$f" ]]; then
+      rm -f "$f"
+      removed=$((removed + 1))
+    elif [[ -d "$f" ]] && [[ -z "$(ls -A "$f" 2>/dev/null)" ]]; then
+      rmdir "$f" 2>/dev/null || true
+      removed=$((removed + 1))
+    fi
+  done
+  success "Rolled back created files."
+}
 
 # Escape string for use as sed replacement (handles /, &, \, newlines)
 sed_escape() {
@@ -235,6 +309,35 @@ run_update() {
   info "Review changes with: git diff"
 }
 
+# ---------------------------------------------------------------------------
+# Shell completions
+# ---------------------------------------------------------------------------
+print_completions() {
+  cat <<'COMP'
+# Bash completion for scaffold
+# Enable: source <(./scaffold --completions)
+# Persist: ./scaffold --completions >> ~/.bashrc
+
+_scaffold_completions() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  local prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  # Complete language after --add
+  if [[ "$prev" == "--add" ]]; then
+    COMPREPLY=($(compgen -W "python typescript go rust" -- "$cur"))
+    return
+  fi
+
+  # Complete flags
+  local flags="--help --keep --non-interactive --dry-run --update --completions --add"
+  COMPREPLY=($(compgen -W "$flags" -- "$cur"))
+}
+
+complete -F _scaffold_completions ./scaffold
+complete -F _scaffold_completions scaffold
+COMP
+}
+
 parse_flags() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -258,6 +361,21 @@ parse_flags() {
         run_update
         exit 0
         ;;
+      --completions)
+        print_completions
+        exit 0
+        ;;
+      --add)
+        if [[ -z "${2:-}" ]]; then
+          error "--add requires a language argument (python, typescript, go, rust)"
+          exit 1
+        fi
+        case "$2" in
+          python|typescript|go|rust) ADD_LANGUAGE="$2" ;;
+          *) error "Unsupported language: $2 (choose: python, typescript, go, rust)"; exit 1 ;;
+        esac
+        shift 2
+        ;;
       *)
         error "Unknown flag: $1"
         echo "Run './scaffold --help' for usage."
@@ -280,6 +398,9 @@ Options:
   --non-interactive   Use defaults for all prompts (for CI/automation)
   --dry-run           Preview what would be created without writing anything
   --update            Update skills, agents, and hooks from scaffold repo
+  --completions       Output bash completion script
+  --add <lang>        Layer a second language into an existing project
+                      Supported: python, typescript, go, rust
 
 What it does:
   1. Asks for project name, description, language, and archetype
@@ -2308,10 +2429,247 @@ show_summary() {
 }
 
 # ---------------------------------------------------------------------------
+# Add language mode — layer a second language into existing project
+# ---------------------------------------------------------------------------
+run_add_language() {
+  local lang="$ADD_LANGUAGE"
+
+  header "Adding $lang to existing project"
+
+  # Validate project has been scaffolded already
+  if [[ ! -f "$SCRIPT_DIR/CLAUDE.md" ]]; then
+    error "No CLAUDE.md found. Run ./scaffold first to initialize the project."
+    exit 1
+  fi
+
+  if [[ ! -d "$SCRIPT_DIR/templates/$lang" ]]; then
+    error "Templates for $lang not found. Make sure scaffold templates are present (use --keep on initial run)."
+    exit 1
+  fi
+
+  # --- Append language conventions to CLAUDE.md (skip if already present) ---
+  local convention_header=""
+  case "$lang" in
+    python)     convention_header="Python Conventions" ;;
+    typescript) convention_header="TypeScript Conventions" ;;
+    go)         convention_header="Go Conventions" ;;
+    rust)       convention_header="Rust Conventions" ;;
+  esac
+
+  if grep -q "$convention_header" "$SCRIPT_DIR/CLAUDE.md" 2>/dev/null; then
+    info "$convention_header already in CLAUDE.md — skipping"
+  elif [[ -f "$SCRIPT_DIR/templates/$lang/CONVENTIONS.md" ]]; then
+    info "Appending $lang conventions to CLAUDE.md..."
+    echo "" >> "$SCRIPT_DIR/CLAUDE.md"
+    echo "---" >> "$SCRIPT_DIR/CLAUDE.md"
+    echo "" >> "$SCRIPT_DIR/CLAUDE.md"
+    cat "$SCRIPT_DIR/templates/$lang/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
+    success "CLAUDE.md updated with $lang conventions"
+  fi
+
+  # --- Install language config files (don't overwrite existing) ---
+  info "Installing $lang config files..."
+  local tmpl_dir="$SCRIPT_DIR/templates/$lang"
+
+  # Detect project name from existing CLAUDE.md or directory name
+  PROJECT_NAME="${PROJECT_NAME:-$(basename "$SCRIPT_DIR")}"
+  PROJECT_DESC="${PROJECT_DESC:-A project built with Claude Code}"
+  local escaped_name escaped_desc
+  escaped_name="$(sed_escape "$PROJECT_NAME")"
+  escaped_desc="$(sed_escape "$PROJECT_DESC")"
+
+  # Process .tmpl files (skip if target exists)
+  for tmpl in "$tmpl_dir"/*.tmpl; do
+    if [[ -f "$tmpl" ]]; then
+      local dest_name
+      dest_name="$(basename "$tmpl" .tmpl)"
+      if [[ -f "$SCRIPT_DIR/$dest_name" ]]; then
+        info "  Skipping $dest_name (already exists)"
+      else
+        sed "s/{{PROJECT_NAME}}/${escaped_name}/g; s/{{PROJECT_DESCRIPTION}}/${escaped_desc}/g" \
+          "$tmpl" > "$SCRIPT_DIR/$dest_name"
+        success "  Created $dest_name"
+      fi
+    fi
+  done
+
+  # Copy non-template config files (skip if target exists)
+  for cfg in "$tmpl_dir"/*; do
+    local basename
+    basename="$(basename "$cfg")"
+    if [[ "$basename" != "CONVENTIONS.md" && \
+          "$basename" != "gitignore.append" && \
+          "$basename" != *.tmpl && \
+          -f "$cfg" ]]; then
+      if [[ -f "$SCRIPT_DIR/$basename" ]]; then
+        info "  Skipping $basename (already exists)"
+      else
+        cp "$cfg" "$SCRIPT_DIR/$basename"
+        success "  Created $basename"
+      fi
+    fi
+  done
+
+  # --- Append to .gitignore (don't duplicate entries) ---
+  if [[ -f "$tmpl_dir/gitignore.append" ]]; then
+    info "Updating .gitignore with $lang entries..."
+    while IFS= read -r line; do
+      if [[ -n "$line" && "$line" != \#* ]]; then
+        if ! grep -qxF "$line" "$SCRIPT_DIR/.gitignore" 2>/dev/null; then
+          echo "$line" >> "$SCRIPT_DIR/.gitignore"
+        fi
+      elif [[ "$line" == \#* ]]; then
+        # Add comment headers if not already present
+        if ! grep -qxF "$line" "$SCRIPT_DIR/.gitignore" 2>/dev/null; then
+          echo "$line" >> "$SCRIPT_DIR/.gitignore"
+        fi
+      fi
+    done < "$tmpl_dir/gitignore.append"
+    success "  .gitignore updated"
+  fi
+
+  # --- Add prefixed Makefile targets ---
+  info "Adding $lang Makefile targets..."
+  local lang_short=""
+  local test_cmd="" lint_cmd="" fmt_cmd="" typecheck_cmd=""
+  case "$lang" in
+    python)
+      lang_short="py"
+      test_cmd="python -m pytest tests/ -v"
+      lint_cmd="ruff check ."
+      fmt_cmd="ruff format ."
+      typecheck_cmd="mypy src/"
+      ;;
+    typescript)
+      lang_short="ts"
+      test_cmd="npx vitest run"
+      lint_cmd="npx eslint src/"
+      fmt_cmd="npx prettier --write src/"
+      typecheck_cmd="npx tsc --noEmit"
+      ;;
+    go)
+      lang_short="go"
+      test_cmd="go test ./..."
+      lint_cmd="golangci-lint run"
+      fmt_cmd="gofmt -w ."
+      typecheck_cmd="go vet ./..."
+      ;;
+    rust)
+      lang_short="rs"
+      test_cmd="cargo test"
+      lint_cmd="cargo clippy -- -D warnings"
+      fmt_cmd="cargo fmt"
+      typecheck_cmd="cargo check"
+      ;;
+  esac
+
+  if grep -q "^test-${lang_short}:" "$SCRIPT_DIR/Makefile" 2>/dev/null; then
+    info "  Makefile targets for $lang already exist — skipping"
+  else
+    cat >> "$SCRIPT_DIR/Makefile" <<MKEOF
+
+# --- ${lang} targets (added via --add) ---
+.PHONY: test-${lang_short} lint-${lang_short} fmt-${lang_short} typecheck-${lang_short}
+
+test-${lang_short}:
+	${test_cmd}
+
+lint-${lang_short}:
+	${lint_cmd}
+
+fmt-${lang_short}:
+	${fmt_cmd}
+
+typecheck-${lang_short}:
+	${typecheck_cmd}
+MKEOF
+    success "  Added test-${lang_short}, lint-${lang_short}, fmt-${lang_short}, typecheck-${lang_short}"
+  fi
+
+  # --- Update CI workflow to include second language ---
+  local ci_file="$SCRIPT_DIR/.github/workflows/ci.yml"
+  if [[ -f "$ci_file" ]]; then
+    if grep -q "$lang" "$ci_file" 2>/dev/null; then
+      info "  CI already references $lang — skipping"
+    else
+      info "Updating CI workflow for $lang..."
+      local ci_step=""
+      case "$lang" in
+        python) ci_step="
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -e '.[dev]'
+
+      - name: Run Python checks
+        run: make test-py && make lint-py" ;;
+        typescript) ci_step="
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install TypeScript dependencies
+        run: npm ci
+
+      - name: Run TypeScript checks
+        run: make test-ts && make lint-ts" ;;
+        go) ci_step="
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Run Go checks
+        run: make test-go && make lint-go" ;;
+        rust) ci_step="
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Run Rust checks
+        run: make test-rs && make lint-rs" ;;
+      esac
+
+      # Insert new language steps before the final "Run checks" step
+      if [[ -n "$ci_step" ]]; then
+        local ci_tmp
+        ci_tmp="$(mktemp)"
+        awk -v steps="$ci_step" '
+          /- name: Run checks/ { print steps; print ""; }
+          { print }
+        ' "$ci_file" > "$ci_tmp"
+        mv "$ci_tmp" "$ci_file"
+        success "  CI workflow updated with $lang steps"
+      fi
+    fi
+  fi
+
+  echo ""
+  success "Successfully added $lang to your project."
+  info "Review changes with: git diff"
+  info "New Makefile targets: test-${lang_short}, lint-${lang_short}, fmt-${lang_short}, typecheck-${lang_short}"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
   parse_flags "$@"
+
+  # --add mode: layer a second language and exit
+  if [[ -n "$ADD_LANGUAGE" ]]; then
+    run_add_language
+    exit 0
+  fi
 
   echo ""
   echo -e "${BOLD}╔═══════════════════════════════════════════════════╗${RESET}"
@@ -2335,10 +2693,19 @@ main() {
     exit 0
   fi
 
+  # Snapshot existing files and enable rollback on failure
+  snapshot_pre_existing
+  trap rollback_on_failure ERR
+
   apply_templates
   cleanup_artifacts
   init_git
   apply_github_pm
+
+  # Disable rollback trap — we succeeded
+  trap - ERR
+  rm -f "$PRE_SNAPSHOT"
+
   show_summary
 }
 
