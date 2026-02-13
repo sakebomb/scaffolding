@@ -1,0 +1,42 @@
+# =============================================================================
+# Scaffolding — .gitignore
+# =============================================================================
+# Language-specific entries are appended during scaffold init.
+
+# Scratch / ephemeral workspace (subagent outputs, experiments)
+scratch/*
+!scratch/.gitkeep
+!scratch/README.md
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Coverage reports
+coverage_html/
+htmlcov/
+.coverage
+*.lcov
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Build artifacts (generic)
+dist/
+build/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak

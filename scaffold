@@ -1,0 +1,833 @@
+#!/usr/bin/env bash
+# =============================================================================
+# scaffold — Project initializer for Claude Code
+# =============================================================================
+# Sets up a project optimized for Claude Code with:
+#   - CLAUDE.md agent constitution + language-specific conventions
+#   - .claude/ settings, skills (slash commands), and hooks
+#   - Tiered test structure + Makefile
+#   - Task management (todo, lessons, tests)
+#   - Agent specifications
+#   - Optional Ralph Wiggum autonomous loop
+#
+# Usage:
+#   ./scaffold                  Interactive setup
+#   ./scaffold --help           Show help
+#   ./scaffold --keep           Don't remove scaffold artifacts after init
+#   ./scaffold --non-interactive Use defaults for all prompts
+# =============================================================================
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Globals
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KEEP_ARTIFACTS=false
+NON_INTERACTIVE=false
+PROJECT_NAME=""
+PROJECT_DESC=""
+LANGUAGE=""
+ENABLE_RALPH=false
+GIT_REMOTE=""
+ALLOW_COMMIT=false
+ALLOW_PUSH=false
+ALLOW_PKG_MANAGER=false
+ALLOW_DOCKER=false
+
+# Colors (disabled if not a terminal)
+if [[ -t 1 ]]; then
+  BOLD='\033[1m'
+  DIM='\033[2m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[0;33m'
+  CYAN='\033[0;36m'
+  RED='\033[0;31m'
+  RESET='\033[0m'
+else
+  BOLD='' DIM='' GREEN='' YELLOW='' CYAN='' RED='' RESET=''
+fi
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+info()    { echo -e "${CYAN}▸${RESET} $*"; }
+success() { echo -e "${GREEN}✓${RESET} $*"; }
+warn()    { echo -e "${YELLOW}⚠${RESET} $*"; }
+error()   { echo -e "${RED}✗${RESET} $*" >&2; }
+header()  { echo -e "\n${BOLD}═══ $* ═══${RESET}\n"; }
+
+# Escape string for use as sed replacement (handles /, &, \, newlines)
+sed_escape() {
+  printf '%s' "$1" | sed -e 's/[\/&\\]/\\&/g'
+}
+
+prompt() {
+  local var_name="$1" prompt_text="$2" default="$3"
+  if [[ "$NON_INTERACTIVE" == true ]]; then
+    printf -v "$var_name" '%s' "$default"
+    return
+  fi
+  local display_default=""
+  if [[ -n "$default" ]]; then
+    display_default=" ${DIM}[$default]${RESET}"
+  fi
+  echo -ne "${CYAN}?${RESET} ${prompt_text}${display_default}: "
+  local input
+  read -r input
+  if [[ -z "$input" ]]; then
+    printf -v "$var_name" '%s' "$default"
+  else
+    printf -v "$var_name" '%s' "$input"
+  fi
+}
+
+prompt_yn() {
+  local var_name="$1" prompt_text="$2" default="$3"
+  if [[ "$NON_INTERACTIVE" == true ]]; then
+    printf -v "$var_name" '%s' "$default"
+    return
+  fi
+  local yn_hint="y/n"
+  if [[ "$default" == true ]]; then yn_hint="Y/n"; fi
+  if [[ "$default" == false ]]; then yn_hint="y/N"; fi
+  echo -ne "${CYAN}?${RESET} ${prompt_text} ${DIM}[$yn_hint]${RESET}: "
+  local input
+  read -r input
+  case "${input,,}" in
+    y|yes) printf -v "$var_name" '%s' "true" ;;
+    n|no)  printf -v "$var_name" '%s' "false" ;;
+    *)     printf -v "$var_name" '%s' "$default" ;;
+  esac
+}
+
+prompt_choice() {
+  local var_name="$1" prompt_text="$2"
+  shift 2
+  local options=("$@")
+
+  if [[ "$NON_INTERACTIVE" == true ]]; then
+    printf -v "$var_name" '%s' "${options[0]}"
+    return
+  fi
+
+  echo -e "${CYAN}?${RESET} ${prompt_text}"
+  local i=1
+  for opt in "${options[@]}"; do
+    echo -e "  ${BOLD}$i)${RESET} $opt"
+    i=$((i + 1))
+  done
+  echo -ne "${DIM}  Enter number [1]: ${RESET}"
+  local input
+  read -r input
+  if [[ -z "$input" || "$input" -lt 1 || "$input" -gt ${#options[@]} ]] 2>/dev/null; then
+    printf -v "$var_name" '%s' "${options[0]}"
+  else
+    printf -v "$var_name" '%s' "${options[$((input - 1))]}"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Parse CLI flags
+# ---------------------------------------------------------------------------
+parse_flags() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --help|-h)
+        show_help
+        exit 0
+        ;;
+      --keep)
+        KEEP_ARTIFACTS=true
+        shift
+        ;;
+      --non-interactive)
+        NON_INTERACTIVE=true
+        shift
+        ;;
+      *)
+        error "Unknown flag: $1"
+        echo "Run './scaffold --help' for usage."
+        exit 1
+        ;;
+    esac
+  done
+}
+
+show_help() {
+  cat <<'HELP'
+scaffold — Project initializer for Claude Code
+
+Usage:
+  ./scaffold [OPTIONS]
+
+Options:
+  --help, -h          Show this help message
+  --keep              Don't remove scaffold artifacts after init
+  --non-interactive   Use defaults for all prompts (for CI/automation)
+
+What it does:
+  1. Asks for project name, description, and language
+  2. Configures Claude Code permissions based on your preferences
+  3. Sets up language-specific tooling (linter, formatter, test runner)
+  4. Optionally integrates Ralph Wiggum autonomous loop
+  5. Helps you create or load a project plan
+  6. Initializes git with a clean first commit
+  7. Removes scaffold artifacts (unless --keep is used)
+
+After running, your project is ready for Claude Code from session one.
+
+Non-interactive defaults:
+  Project name:    directory name
+  Language:        python
+  Permissions:     safe defaults only
+  Ralph Wiggum:    disabled
+  Project plan:    template only
+HELP
+}
+
+# ---------------------------------------------------------------------------
+# Step 1: Project basics
+# ---------------------------------------------------------------------------
+step_project_basics() {
+  header "Project Setup"
+
+  local dir_name
+  dir_name="$(basename "$SCRIPT_DIR")"
+
+  prompt PROJECT_NAME "Project name" "$dir_name"
+  prompt PROJECT_DESC "Short description" "A project built with Claude Code"
+
+  success "Project: $PROJECT_NAME"
+}
+
+# ---------------------------------------------------------------------------
+# Step 2: Language selection
+# ---------------------------------------------------------------------------
+step_language() {
+  header "Language Selection"
+
+  info "Choose your primary language. This configures:"
+  info "  - Language-specific conventions appended to CLAUDE.md"
+  info "  - Linter, formatter, type checker, and test runner"
+  info "  - Project config files (pyproject.toml, package.json, etc.)"
+  echo ""
+
+  prompt_choice LANGUAGE "Select primary language:" \
+    "python    — pytest, ruff, mypy" \
+    "typescript — vitest, eslint, tsc" \
+    "go        — go test, golangci-lint" \
+    "rust      — cargo test, clippy" \
+    "none      — language-agnostic (configure later)"
+
+  # Extract just the language name (before the spaces/dash)
+  LANGUAGE="${LANGUAGE%% *}"
+
+  if [[ "$LANGUAGE" == "none" ]]; then
+    info "No language selected. You can add language support later by copying from templates/."
+  else
+    success "Language: $LANGUAGE"
+
+    # Show recommendation
+    echo ""
+    case "$LANGUAGE" in
+      python)
+        info "${DIM}Recommendation: Use 'uv' or 'pip' with a virtual environment.${RESET}"
+        info "${DIM}Run: python -m venv .venv && source .venv/bin/activate && pip install -e '.[dev]'${RESET}"
+        ;;
+      typescript)
+        info "${DIM}Recommendation: Use Node.js 20+ with npm or pnpm.${RESET}"
+        info "${DIM}Run: npm install${RESET}"
+        ;;
+      go)
+        info "${DIM}Recommendation: Use Go 1.22+. Install golangci-lint for linting.${RESET}"
+        info "${DIM}Run: go mod tidy${RESET}"
+        info "${DIM}Note: Update go.mod module path to your full path (e.g., github.com/user/${PROJECT_NAME})${RESET}"
+        ;;
+      rust)
+        info "${DIM}Recommendation: Use the latest stable Rust via rustup.${RESET}"
+        info "${DIM}Run: cargo build${RESET}"
+        ;;
+    esac
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Step 3: Permissions
+# ---------------------------------------------------------------------------
+step_permissions() {
+  header "Claude Code Permissions"
+
+  info "Safe defaults are always auto-approved:"
+  info "  File read/write, searches, git status/diff/log, make targets"
+  echo ""
+  info "The following need your preference:"
+  echo ""
+
+  prompt_yn ALLOW_COMMIT "Auto-approve git commit? (no = Claude asks each time)" true
+  prompt_yn ALLOW_PUSH "Auto-approve git push? (no = Claude asks each time)" false
+  prompt_yn ALLOW_PKG_MANAGER "Auto-approve package manager commands? (pip/npm/cargo/go)" false
+  prompt_yn ALLOW_DOCKER "Auto-approve docker commands?" false
+
+  success "Permissions configured"
+}
+
+# ---------------------------------------------------------------------------
+# Step 4: Ralph Wiggum
+# ---------------------------------------------------------------------------
+step_ralph() {
+  header "Ralph Wiggum (Autonomous Loop)"
+
+  info "Ralph Wiggum runs Claude Code in iterative cycles:"
+  info "  plan → build → test → commit → repeat"
+  info "Each iteration gets a fresh context window."
+  info "Progress persists via tasks/todo.md."
+  echo ""
+
+  prompt_yn ENABLE_RALPH "Enable Ralph Wiggum autonomous loop?" false
+
+  if [[ "$ENABLE_RALPH" == true ]]; then
+    success "Ralph Wiggum enabled"
+  else
+    info "Skipped. You can add Ralph later from templates/ralph/."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Step 5: Project planning
+# ---------------------------------------------------------------------------
+step_planning() {
+  header "Project Plan"
+
+  info "A structured plan helps Claude Code understand your project from session one."
+  echo ""
+
+  prompt_choice PLAN_CHOICE "How would you like to set up your project plan?" \
+    "Build one now   — answer a few questions to generate a plan" \
+    "Load from file  — import an existing plan (markdown)" \
+    "Skip            — use the blank template"
+
+  PLAN_CHOICE="${PLAN_CHOICE%% *}"
+
+  case "$PLAN_CHOICE" in
+    Build)
+      build_plan_interactive
+      ;;
+    Load)
+      load_plan_from_file
+      ;;
+    Skip)
+      info "Using blank template. Run '/plan' in Claude Code to create one later."
+      local today
+      today=$(date +%Y-%m-%d)
+      cat > "$SCRIPT_DIR/tasks/todo.md" <<PLAN
+# Task Plan — ${PROJECT_NAME}
+
+> Created: ${today}
+> Status: Not started
+
+## Objective
+
+_Define your project objective here, or run \`/plan\` in Claude Code._
+
+## Plan
+
+- [ ] 1. First task
+- [ ] 2. Second task
+
+## Decisions & Context
+
+_Capture architectural decisions and tradeoffs here as you go._
+
+## Results
+
+_Filled in after completion._
+PLAN
+      ;;
+  esac
+}
+
+build_plan_interactive() {
+  echo ""
+  info "Let's build your project plan."
+  echo ""
+
+  local objective components milestone risks
+
+  prompt objective "What are you building? (one sentence)" ""
+  prompt components "What are the major components or features? (comma-separated)" ""
+  prompt milestone "What's the first milestone? (what should work first)" ""
+  prompt risks "Any known risks or unknowns?" "None identified yet"
+
+  # Generate structured plan
+  local plan_file="$SCRIPT_DIR/tasks/todo.md"
+  local today
+  today=$(date +%Y-%m-%d)
+
+  cat > "$plan_file" <<PLAN
+# Task Plan — ${PROJECT_NAME}
+
+> Updated: ${today}
+> Branch: \`feat/initial-setup\`
+> Status: 🟡 Planning
+
+---
+
+## Objective
+
+${objective}
+
+## Plan
+
+PLAN
+
+  # Parse components into checkboxes
+  local step=1
+  IFS=',' read -ra COMP_ARRAY <<< "$components"
+  for comp in "${COMP_ARRAY[@]}"; do
+    comp="$(echo "$comp" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    if [[ -n "$comp" ]]; then
+      echo "- [ ] ${step}. ${comp}" >> "$plan_file"
+      step=$((step + 1))
+    fi
+  done
+
+  cat >> "$plan_file" <<PLAN
+
+### Checkpoints
+
+- [ ] **Checkpoint 1**: ${milestone}
+
+## Decisions & Context
+
+_Capture architectural decisions and tradeoffs here as you go._
+
+## Risks
+
+- ${risks}
+
+## Results
+
+_Filled in after completion._
+PLAN
+
+  success "Plan written to tasks/todo.md"
+}
+
+load_plan_from_file() {
+  echo ""
+  local plan_path
+  prompt plan_path "Path to your plan file" ""
+
+  if [[ -z "$plan_path" ]]; then
+    warn "No path provided. Using blank template."
+    return
+  fi
+
+  # Expand ~ to home directory
+  plan_path="${plan_path/#\~/$HOME}"
+
+  if [[ ! -f "$plan_path" ]]; then
+    warn "File not found: $plan_path. Using blank template."
+    return
+  fi
+
+  cp "$plan_path" "$SCRIPT_DIR/tasks/todo.md"
+  success "Plan loaded from $plan_path"
+}
+
+# ---------------------------------------------------------------------------
+# Step 6: Git remote
+# ---------------------------------------------------------------------------
+step_git_remote() {
+  header "Git Remote (Optional)"
+
+  prompt GIT_REMOTE "Git remote URL (leave blank to skip)" ""
+
+  if [[ -n "$GIT_REMOTE" ]]; then
+    success "Remote: $GIT_REMOTE"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Apply: Template engine
+# ---------------------------------------------------------------------------
+apply_templates() {
+  header "Applying Configuration"
+
+  # --- Append language conventions to CLAUDE.md (before placeholder replacement) ---
+  if [[ "$LANGUAGE" != "none" && -f "$SCRIPT_DIR/templates/$LANGUAGE/CONVENTIONS.md" ]]; then
+    info "Appending $LANGUAGE conventions to CLAUDE.md..."
+    echo "" >> "$SCRIPT_DIR/CLAUDE.md"
+    echo "---" >> "$SCRIPT_DIR/CLAUDE.md"
+    echo "" >> "$SCRIPT_DIR/CLAUDE.md"
+    cat "$SCRIPT_DIR/templates/$LANGUAGE/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
+    success "CLAUDE.md updated with $LANGUAGE conventions"
+  fi
+
+  # --- Replace placeholders in CLAUDE.md (after conventions are appended) ---
+  info "Customizing CLAUDE.md..."
+  local escaped_name escaped_desc
+  escaped_name="$(sed_escape "$PROJECT_NAME")"
+  escaped_desc="$(sed_escape "$PROJECT_DESC")"
+  sed -i "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/CLAUDE.md"
+  sed -i "s/{{PROJECT_DESCRIPTION}}/${escaped_desc}/g" "$SCRIPT_DIR/CLAUDE.md"
+
+  # --- Place language-specific config files ---
+  if [[ "$LANGUAGE" != "none" ]]; then
+    info "Installing $LANGUAGE config files..."
+
+    local tmpl_dir="$SCRIPT_DIR/templates/$LANGUAGE"
+
+    # Process .tmpl files (replace placeholders, remove .tmpl extension)
+    for tmpl in "$tmpl_dir"/*.tmpl; do
+      if [[ -f "$tmpl" ]]; then
+        local dest_name
+        dest_name="$(basename "$tmpl" .tmpl)"
+        sed "s/{{PROJECT_NAME}}/${escaped_name}/g; s/{{PROJECT_DESCRIPTION}}/${escaped_desc}/g" \
+          "$tmpl" > "$SCRIPT_DIR/$dest_name"
+        success "  Created $dest_name"
+      fi
+    done
+
+    # Copy non-template config files (not CONVENTIONS.md, not .tmpl, not gitignore.append)
+    for cfg in "$tmpl_dir"/*; do
+      local basename
+      basename="$(basename "$cfg")"
+      if [[ "$basename" != "CONVENTIONS.md" && \
+            "$basename" != "gitignore.append" && \
+            "$basename" != *.tmpl && \
+            -f "$cfg" ]]; then
+        cp "$cfg" "$SCRIPT_DIR/$basename"
+        success "  Created $basename"
+      fi
+    done
+
+    # Append language-specific gitignore entries
+    if [[ -f "$tmpl_dir/gitignore.append" ]]; then
+      cat "$tmpl_dir/gitignore.append" >> "$SCRIPT_DIR/.gitignore"
+      success "  Updated .gitignore with $LANGUAGE entries"
+    fi
+
+    # Create src directory
+    case "$LANGUAGE" in
+      python)
+        local pkg_name="${PROJECT_NAME//-/_}"
+        mkdir -p "$SCRIPT_DIR/src/$pkg_name"
+        touch "$SCRIPT_DIR/src/$pkg_name/__init__.py"
+        success "  Created src/$pkg_name/"
+        ;;
+      typescript)
+        mkdir -p "$SCRIPT_DIR/src"
+        cat > "$SCRIPT_DIR/src/index.ts" <<'TS'
+export function main(): void {
+  console.log("Hello from {{PROJECT_NAME}}");
+}
+TS
+        sed -i "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/index.ts"
+        success "  Created src/index.ts"
+        ;;
+      go)
+        mkdir -p "$SCRIPT_DIR/cmd/$PROJECT_NAME"
+        cat > "$SCRIPT_DIR/cmd/$PROJECT_NAME/main.go" <<'GO'
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello from {{PROJECT_NAME}}")
+}
+GO
+        sed -i "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/cmd/$PROJECT_NAME/main.go"
+        success "  Created cmd/$PROJECT_NAME/main.go"
+        ;;
+      rust)
+        mkdir -p "$SCRIPT_DIR/src"
+        cat > "$SCRIPT_DIR/src/main.rs" <<'RUST'
+fn main() {
+    println!("Hello from {{PROJECT_NAME}}");
+}
+RUST
+        sed -i "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/main.rs"
+        success "  Created src/main.rs"
+        ;;
+    esac
+  fi
+
+  # --- Configure permissions ---
+  info "Configuring Claude Code permissions..."
+  apply_permissions
+
+  # --- Ralph Wiggum ---
+  if [[ "$ENABLE_RALPH" == true ]]; then
+    info "Setting up Ralph Wiggum..."
+    mkdir -p "$SCRIPT_DIR/scripts"
+    cp "$SCRIPT_DIR/templates/ralph/ralph-loop.sh" "$SCRIPT_DIR/scripts/ralph-loop.sh"
+    chmod +x "$SCRIPT_DIR/scripts/ralph-loop.sh"
+    cp "$SCRIPT_DIR/templates/ralph/PROMPT_build.md" "$SCRIPT_DIR/PROMPT_build.md"
+    cp "$SCRIPT_DIR/templates/ralph/PROMPT_plan.md" "$SCRIPT_DIR/PROMPT_plan.md"
+    success "Ralph Wiggum installed (scripts/ralph-loop.sh)"
+  fi
+
+  # --- Generate project README (replaces scaffolding README) ---
+  info "Generating project README..."
+  local getting_started=""
+  case "$LANGUAGE" in
+    python)
+      getting_started="# Set up virtual environment
+python -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'" ;;
+    typescript)
+      getting_started="# Install dependencies
+npm install" ;;
+    go)
+      getting_started="# Install dependencies
+go mod tidy" ;;
+    rust)
+      getting_started="# Build
+cargo build" ;;
+    *)
+      getting_started="# Install dependencies (configure for your language)" ;;
+  esac
+
+  cat > "$SCRIPT_DIR/README.md" <<README
+# ${PROJECT_NAME}
+
+${PROJECT_DESC}
+
+## Getting Started
+
+\`\`\`bash
+${getting_started}
+
+# Run tests
+make test
+\`\`\`
+
+## Development
+
+| Command | Description |
+|---------|-------------|
+| \`make test\` | Run all test tiers |
+| \`make lint\` | Run linter |
+| \`make fmt\` | Auto-format code |
+| \`make typecheck\` | Run type checker |
+| \`make build\` | Compile/build |
+| \`make check\` | lint + typecheck + test (pre-PR gate) |
+
+### Claude Code
+
+This project is configured for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with:
+
+- Agent constitution (\`CLAUDE.md\`)
+- 10 slash commands: \`/plan\`, \`/review\`, \`/test\`, \`/lesson\`, \`/checkpoint\`, \`/status\`, \`/simplify\`, \`/index\`, \`/save\`, \`/load\`
+- 8 agent specifications in \`agents/\`
+- Task management in \`tasks/\`
+
+## License
+
+[MIT](LICENSE)
+README
+  success "README.md generated for ${PROJECT_NAME}"
+}
+
+apply_permissions() {
+  local settings="$SCRIPT_DIR/.claude/settings.json"
+  local tmp_settings
+  tmp_settings=$(mktemp)
+
+  # Start with existing settings and add user-chosen permissions
+  cp "$settings" "$tmp_settings"
+
+  # Build the additional allow rules
+  local additions=""
+
+  if [[ "$ALLOW_COMMIT" == true ]]; then
+    additions="$additions\"Bash(git commit *)\", \"Bash(git commit -m *)\", "
+  fi
+
+  if [[ "$ALLOW_PUSH" == true ]]; then
+    additions="$additions\"Bash(git push *)\", \"Bash(git push)\", "
+  fi
+
+  if [[ "$ALLOW_PKG_MANAGER" == true ]]; then
+    case "$LANGUAGE" in
+      python)    additions="$additions\"Bash(pip install *)\", \"Bash(pip install)\", \"Bash(uv *)\", " ;;
+      typescript) additions="$additions\"Bash(npm install *)\", \"Bash(npm install)\", \"Bash(npm ci)\", \"Bash(npx *)\", " ;;
+      go)        additions="$additions\"Bash(go get *)\", \"Bash(go mod *)\", " ;;
+      rust)      additions="$additions\"Bash(cargo build *)\", \"Bash(cargo add *)\", " ;;
+      none)      additions="$additions\"Bash(pip install *)\", \"Bash(npm install *)\", \"Bash(go get *)\", \"Bash(cargo add *)\", " ;;
+    esac
+  fi
+
+  if [[ "$ALLOW_DOCKER" == true ]]; then
+    additions="$additions\"Bash(docker build *)\", \"Bash(docker compose *)\", \"Bash(docker run *)\", "
+  fi
+
+  # If we have additions, insert them into the allow array
+  if [[ -n "$additions" ]]; then
+    # Remove trailing comma+space
+    additions="${additions%, }"
+    # Insert after the last existing allow entry (before the closing bracket)
+    # Use python/sed to safely modify JSON... but we're zero-dependency bash.
+    # Simple approach: replace the last entry in allow array with itself + new entries
+    local last_allow
+    last_allow=$(grep -n '"Bash(mkdir \*)' "$tmp_settings" | tail -1 | cut -d: -f1)
+    if [[ -n "$last_allow" ]]; then
+      sed -i "${last_allow}s|\"Bash(mkdir \*)\"|\"Bash(mkdir *)\",\n      ${additions}|" "$tmp_settings"
+    fi
+  fi
+
+  cp "$tmp_settings" "$settings"
+  rm -f "$tmp_settings"
+  success "  Permissions updated in .claude/settings.json"
+}
+
+# ---------------------------------------------------------------------------
+# Cleanup: Remove scaffold artifacts
+# ---------------------------------------------------------------------------
+cleanup_artifacts() {
+  if [[ "$KEEP_ARTIFACTS" == true ]]; then
+    info "Keeping scaffold artifacts (--keep flag)."
+    return
+  fi
+
+  header "Cleaning Up"
+
+  info "Removing scaffold artifacts..."
+  rm -rf "$SCRIPT_DIR/templates"
+  success "  Removed templates/"
+
+  # Remove this script last
+  local self="$SCRIPT_DIR/scaffold"
+  if [[ -f "$self" ]]; then
+    rm "$self"
+    success "  Removed scaffold"
+  fi
+
+  success "Project is clean — no scaffold artifacts remain."
+}
+
+# ---------------------------------------------------------------------------
+# Git initialization
+# ---------------------------------------------------------------------------
+init_git() {
+  header "Git Initialization"
+
+  # Check if already a git repo
+  if [[ -d "$SCRIPT_DIR/.git" ]]; then
+    info "Git repo already exists."
+
+    # Check if we're on main/master and create a feature branch
+    local current_branch
+    current_branch="$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "none")"
+    if [[ "$current_branch" == "main" || "$current_branch" == "master" || "$current_branch" == "none" ]]; then
+      # If there are no commits yet, rename the branch to main
+      local has_commits
+      has_commits="$(git -C "$SCRIPT_DIR" rev-list --count HEAD 2>/dev/null || echo "0")"
+      if [[ "$has_commits" == "0" ]]; then
+        git -C "$SCRIPT_DIR" checkout -b main 2>/dev/null || true
+      fi
+    fi
+  else
+    info "Initializing git repository..."
+    git -C "$SCRIPT_DIR" init -b main
+    success "Git repo initialized (main branch)"
+  fi
+
+  # Add remote if provided
+  if [[ -n "$GIT_REMOTE" ]]; then
+    git -C "$SCRIPT_DIR" remote add origin "$GIT_REMOTE" 2>/dev/null || \
+      git -C "$SCRIPT_DIR" remote set-url origin "$GIT_REMOTE"
+    success "Remote set: $GIT_REMOTE"
+  fi
+
+  # Stage and commit
+  info "Creating initial commit..."
+  git -C "$SCRIPT_DIR" add -A
+  git -C "$SCRIPT_DIR" commit -m "$(cat <<'EOF'
+feat: initialize project with scaffolding framework
+
+- CLAUDE.md agent constitution with project conventions
+- .claude/ settings, skills (slash commands), and hooks
+- Tiered test structure (unit/integration/agent)
+- Task management (todo, lessons, tests)
+- Agent specifications
+- Language-aware Makefile
+
+Scaffolded with https://github.com/sakebomb/scaffolding
+EOF
+  )"
+  success "Initial commit created"
+
+  # Show status
+  echo ""
+  info "Branch: $(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD)"
+  info "Commits: $(git -C "$SCRIPT_DIR" rev-list --count HEAD)"
+}
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+show_summary() {
+  header "Setup Complete"
+
+  echo -e "${GREEN}Your project '${PROJECT_NAME}' is ready for Claude Code.${RESET}"
+  echo ""
+  echo "What's configured:"
+  echo -e "  ${BOLD}CLAUDE.md${RESET}           Agent constitution + conventions"
+  echo -e "  ${BOLD}.claude/settings${RESET}    Tiered permissions"
+  echo -e "  ${BOLD}.claude/skills/${RESET}     10 slash commands (/plan, /review, /save, /load, ...)"
+  echo -e "  ${BOLD}.claude/hooks/${RESET}      Main branch protection"
+  echo -e "  ${BOLD}agents/${RESET}             8 agent specifications"
+  echo -e "  ${BOLD}tasks/${RESET}              Plan, lessons, test registry"
+  echo -e "  ${BOLD}Makefile${RESET}            test, lint, fmt, typecheck, build, check"
+
+  if [[ "$LANGUAGE" != "none" ]]; then
+    echo -e "  ${BOLD}Language${RESET}            $LANGUAGE (conventions, configs, tooling)"
+  fi
+
+  if [[ "$ENABLE_RALPH" == true ]]; then
+    echo -e "  ${BOLD}Ralph Wiggum${RESET}       scripts/ralph-loop.sh (autonomous loop)"
+  fi
+
+  echo ""
+  echo "Next steps:"
+  echo "  1. cd $(basename "$SCRIPT_DIR")"
+  echo "  2. Start Claude Code: claude"
+  echo "  3. Try: /status to see your project plan"
+  echo "  4. Try: /plan to create or refine your plan"
+
+  if [[ "$ENABLE_RALPH" == true ]]; then
+    echo "  5. Try: ./scripts/ralph-loop.sh plan  (autonomous planning)"
+    echo "  6. Try: ./scripts/ralph-loop.sh build  (autonomous building)"
+  fi
+
+  echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+main() {
+  parse_flags "$@"
+
+  echo ""
+  echo -e "${BOLD}╔═══════════════════════════════════════════════════╗${RESET}"
+  echo -e "${BOLD}║         Scaffolding — Claude Code Setup          ║${RESET}"
+  echo -e "${BOLD}╚═══════════════════════════════════════════════════╝${RESET}"
+
+  step_project_basics
+  step_language
+  step_permissions
+  step_ralph
+  step_planning
+  step_git_remote
+
+  apply_templates
+  cleanup_artifacts
+  init_git
+  show_summary
+}
+
+main "$@"

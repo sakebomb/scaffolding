@@ -1,0 +1,27 @@
+# Ruff configuration — Python linter and formatter
+# Replaces flake8, isort, and black in a single fast tool.
+# Full rule reference: https://docs.astral.sh/ruff/rules/
+
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort (import sorting)
+    "N",    # pep8-naming
+    "UP",   # pyupgrade (modern syntax)
+    "B",    # flake8-bugbear (common bugs)
+    "A",    # flake8-builtins (shadowing builtins)
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+]
+ignore = []
+
+[lint.per-file-ignores]
+"tests/**" = ["S101"]  # Allow assert in tests
+
+[format]
+quote-style = "double"
