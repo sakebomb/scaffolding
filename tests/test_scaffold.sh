@@ -189,14 +189,22 @@ assert_common_structure() {
   assert_file_exists ".claude/skills/load/SKILL.md"
   assert_file_exists ".claude/skills/backlog/SKILL.md"
   assert_file_exists ".claude/skills/start/SKILL.md"
+  assert_file_exists ".claude/skills/doctor/SKILL.md"
   assert_file_exists ".claude/hooks/protect-main-branch.sh"
 
-  # GitHub templates
+  # GitHub templates and workflows
   assert_file_exists ".github/ISSUE_TEMPLATE/bug.yml"
   assert_file_exists ".github/ISSUE_TEMPLATE/feature.yml"
   assert_file_exists ".github/ISSUE_TEMPLATE/task.yml"
   assert_file_exists ".github/ISSUE_TEMPLATE/config.yml"
   assert_file_exists ".github/pull_request_template.md"
+  assert_file_exists ".github/workflows/ci.yml"
+  assert_file_exists ".github/workflows/release.yml"
+
+  # Generated project files
+  assert_file_exists ".env.example"
+  assert_file_exists "CHANGELOG.md"
+  assert_file_exists ".pre-commit-config.yaml"
 
   # Agents
   assert_dir_exists "agents"

@@ -35,6 +35,7 @@ ALLOW_PKG_MANAGER=false
 ALLOW_DOCKER=false
 SETUP_LABELS=false
 SETUP_KANBAN=false
+ENABLE_DOCKER=false
 
 # Colors (disabled if not a terminal)
 if [[ -t 1 ]]; then
@@ -131,6 +132,105 @@ prompt_choice() {
 # ---------------------------------------------------------------------------
 # Parse CLI flags
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Update mode — pull latest skills, agents, hooks from scaffolding repo
+# ---------------------------------------------------------------------------
+SCAFFOLDING_REPO="https://raw.githubusercontent.com/sakebomb/scaffolding/main"
+
+run_update() {
+  header "Scaffolding Update"
+
+  info "Checking for updates from scaffolding repo..."
+  echo ""
+
+  if ! command -v curl &>/dev/null; then
+    error "curl is required for updates. Install it and try again."
+    exit 1
+  fi
+
+  # Directories to update
+  local update_dirs=(".claude/skills" ".claude/hooks" "agents")
+  local update_files=()
+  local changed=0
+
+  # Discover files to update
+  for dir in "${update_dirs[@]}"; do
+    if [[ ! -d "$SCRIPT_DIR/$dir" ]]; then
+      info "Skipping $dir (directory not found)"
+      continue
+    fi
+    while IFS= read -r -d '' file; do
+      local rel_path="${file#"$SCRIPT_DIR"/}"
+      update_files+=("$rel_path")
+    done < <(find "$SCRIPT_DIR/$dir" -type f -name "*.md" -o -name "*.sh" -o -name "*.json" -print0 2>/dev/null | sort -z)
+  done
+
+  # Check each file for changes
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
+
+  for rel_path in "${update_files[@]}"; do
+    local url="$SCAFFOLDING_REPO/$rel_path"
+    local tmp_file="$tmp_dir/$rel_path"
+    mkdir -p "$(dirname "$tmp_file")"
+
+    if curl -sf "$url" -o "$tmp_file" 2>/dev/null; then
+      if [[ -f "$SCRIPT_DIR/$rel_path" ]]; then
+        if ! diff -q "$SCRIPT_DIR/$rel_path" "$tmp_file" &>/dev/null; then
+          changed=$((changed + 1))
+          echo -e "  ${YELLOW}Changed:${RESET} $rel_path"
+        fi
+      else
+        changed=$((changed + 1))
+        echo -e "  ${GREEN}New:${RESET} $rel_path"
+      fi
+    fi
+  done
+
+  if [[ $changed -eq 0 ]]; then
+    success "Everything is up to date."
+    exit 0
+  fi
+
+  echo ""
+  info "$changed file(s) have updates available."
+  echo ""
+
+  # Show diffs
+  for rel_path in "${update_files[@]}"; do
+    local tmp_file="$tmp_dir/$rel_path"
+    if [[ -f "$tmp_file" && -f "$SCRIPT_DIR/$rel_path" ]]; then
+      if ! diff -q "$SCRIPT_DIR/$rel_path" "$tmp_file" &>/dev/null; then
+        echo -e "\n${BOLD}--- $rel_path ---${RESET}"
+        diff --color=auto -u "$SCRIPT_DIR/$rel_path" "$tmp_file" || true
+      fi
+    fi
+  done
+
+  echo ""
+  local apply="n"
+  read -rp "Apply these updates? [y/N]: " apply
+  if [[ "$apply" != "y" && "$apply" != "Y" ]]; then
+    info "Update cancelled."
+    exit 0
+  fi
+
+  # Apply updates
+  for rel_path in "${update_files[@]}"; do
+    local tmp_file="$tmp_dir/$rel_path"
+    if [[ -f "$tmp_file" ]]; then
+      if [[ ! -f "$SCRIPT_DIR/$rel_path" ]] || ! diff -q "$SCRIPT_DIR/$rel_path" "$tmp_file" &>/dev/null; then
+        mkdir -p "$(dirname "$SCRIPT_DIR/$rel_path")"
+        cp "$tmp_file" "$SCRIPT_DIR/$rel_path"
+      fi
+    fi
+  done
+
+  success "Updated $changed file(s)."
+  info "Review changes with: git diff"
+}
+
 parse_flags() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -145,6 +245,10 @@ parse_flags() {
       --non-interactive)
         NON_INTERACTIVE=true
         shift
+        ;;
+      --update)
+        run_update
+        exit 0
         ;;
       *)
         error "Unknown flag: $1"
@@ -166,6 +270,7 @@ Options:
   --help, -h          Show this help message
   --keep              Don't remove scaffold artifacts after init
   --non-interactive   Use defaults for all prompts (for CI/automation)
+  --update            Update skills, agents, and hooks from scaffolding repo
 
 What it does:
   1. Asks for project name, description, and language
@@ -291,6 +396,18 @@ step_ralph() {
     success "Ralph Wiggum enabled"
   else
     info "Skipped. You can add Ralph later from templates/ralph/."
+  fi
+}
+
+step_docker() {
+  header "Docker (Optional)"
+
+  prompt_yn ENABLE_DOCKER "Include Dockerfile and docker-compose.yml?" false
+
+  if [[ "$ENABLE_DOCKER" == true ]]; then
+    success "Docker enabled"
+  else
+    info "Skipped. You can add Docker later."
   fi
 }
 
@@ -742,7 +859,7 @@ make test
 This project is configured for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with:
 
 - Agent constitution (\`CLAUDE.md\`)
-- 12 slash commands: \`/start\`, \`/plan\`, \`/review\`, \`/test\`, \`/backlog\`, \`/lesson\`, \`/checkpoint\`, \`/status\`, \`/simplify\`, \`/index\`, \`/save\`, \`/load\`
+- 13 slash commands: \`/start\`, \`/plan\`, \`/review\`, \`/test\`, \`/backlog\`, \`/doctor\`, \`/lesson\`, \`/checkpoint\`, \`/status\`, \`/simplify\`, \`/index\`, \`/save\`, \`/load\`
 - 8 agent specifications in \`agents/\`
 - Task management in \`tasks/\`
 
@@ -866,6 +983,345 @@ You don't need to read these files — Claude uses them behind the scenes. But f
 - **Ask questions.** Claude will ask you when it needs clarification. You can also ask it anything about the code.
 GUIDE
   success "GETTING_STARTED.md generated"
+
+  # --- Generate CI workflow ---
+  info "Generating CI workflow..."
+  mkdir -p "$SCRIPT_DIR/.github/workflows"
+
+  local ci_setup=""
+  local ci_lang_name=""
+  case "$LANGUAGE" in
+    python)
+      ci_lang_name="Python"
+      ci_setup="
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -e '.[dev]'" ;;
+    typescript)
+      ci_lang_name="TypeScript"
+      ci_setup="
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci" ;;
+    go)
+      ci_lang_name="Go"
+      ci_setup="
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'" ;;
+    rust)
+      ci_lang_name="Rust"
+      ci_setup="
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt" ;;
+    *)
+      ci_lang_name="Generic"
+      ci_setup="" ;;
+  esac
+
+  cat > "$SCRIPT_DIR/.github/workflows/ci.yml" <<CIEOF
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    name: Lint, typecheck, and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+${ci_setup}
+
+      - name: Run checks
+        run: make check
+CIEOF
+  success "CI workflow generated (.github/workflows/ci.yml)"
+
+  # --- Generate .env.example ---
+  info "Generating .env.example..."
+  cat > "$SCRIPT_DIR/.env.example" <<'ENVEOF'
+# Environment variables for this project
+# Copy to .env and fill in values: cp .env.example .env
+# NEVER commit .env — it's in .gitignore
+
+# Example:
+# DATABASE_URL=postgresql://localhost:5432/mydb
+# API_KEY=your-api-key-here
+ENVEOF
+  success ".env.example generated"
+
+  # --- Generate CHANGELOG.md ---
+  info "Generating CHANGELOG.md..."
+  cat > "$SCRIPT_DIR/CHANGELOG.md" <<CHLOG
+# Changelog
+
+All notable changes to ${PROJECT_NAME} will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+### Added
+- Initial project setup with scaffolding framework
+CHLOG
+  success "CHANGELOG.md generated"
+
+  # --- Generate pre-commit config ---
+  info "Generating pre-commit config..."
+  local precommit_hooks=""
+  case "$LANGUAGE" in
+    python)
+      precommit_hooks="  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format" ;;
+    typescript)
+      precommit_hooks="  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint
+        entry: npx eslint --fix
+        language: system
+        types: [ts, tsx, js, jsx]" ;;
+    go)
+      precommit_hooks="  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.59.0
+    hooks:
+      - id: golangci-lint" ;;
+    rust)
+      precommit_hooks="  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --
+        language: system
+        types: [rust]
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false" ;;
+    *)
+      precommit_hooks="" ;;
+  esac
+
+  cat > "$SCRIPT_DIR/.pre-commit-config.yaml" <<PCEOF
+# Pre-commit hooks — run automatically before each commit
+# Install: pip install pre-commit && pre-commit install
+# Manual run: pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: detect-private-key
+      - id: check-merge-conflict
+${precommit_hooks}
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+PCEOF
+  success "Pre-commit config generated (.pre-commit-config.yaml)"
+
+  # --- Generate Docker files (if enabled) ---
+  if [[ "$ENABLE_DOCKER" == true ]]; then
+    info "Generating Docker files..."
+
+    case "$LANGUAGE" in
+      python)
+        cat > "$SCRIPT_DIR/Dockerfile" <<'DKEOF'
+FROM python:3.12-slim AS base
+
+WORKDIR /app
+
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir .
+
+COPY src/ ./src/
+
+EXPOSE 8000
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+DKEOF
+        ;;
+      typescript)
+        cat > "$SCRIPT_DIR/Dockerfile" <<'DKEOF'
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+
+EXPOSE 3000
+CMD ["node", "dist/index.js"]
+DKEOF
+        ;;
+      go)
+        cat > "$SCRIPT_DIR/Dockerfile" <<'DKEOF'
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /bin/app ./cmd/
+
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /bin/app /bin/app
+
+EXPOSE 8080
+CMD ["/bin/app"]
+DKEOF
+        ;;
+      rust)
+        cat > "$SCRIPT_DIR/Dockerfile" <<'DKEOF'
+FROM rust:1.78-slim AS builder
+
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release && rm -rf src
+COPY src/ ./src/
+RUN touch src/main.rs && cargo build --release
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/app /usr/local/bin/app
+
+EXPOSE 8080
+CMD ["app"]
+DKEOF
+        ;;
+      *)
+        cat > "$SCRIPT_DIR/Dockerfile" <<'DKEOF'
+FROM ubuntu:22.04
+
+WORKDIR /app
+COPY . .
+
+# Configure for your language
+# RUN apt-get update && apt-get install -y ...
+
+EXPOSE 8080
+CMD ["echo", "Configure this Dockerfile for your project"]
+DKEOF
+        ;;
+    esac
+
+    cat > "$SCRIPT_DIR/docker-compose.yml" <<DCEOF
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    # Uncomment for development with hot reload:
+    # command: ["your-dev-command-here"]
+
+  # Add services as needed:
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_DB: ${PROJECT_NAME}
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - db_data:/var/lib/postgresql/data
+
+# volumes:
+#   db_data:
+DCEOF
+    success "Docker files generated (Dockerfile, docker-compose.yml)"
+  fi
+
+  # --- Generate release workflow ---
+  info "Generating release workflow..."
+  cat > "$SCRIPT_DIR/.github/workflows/release.yml" <<'RLEOF'
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Extract section for this version from CHANGELOG.md
+          NOTES=$(awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
+          if [ -z "$NOTES" ]; then
+            NOTES="Release ${GITHUB_REF_NAME}"
+          fi
+          {
+            echo 'notes<<EOF'
+            echo "$NOTES"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          RELEASE_NOTES: ${{ steps.changelog.outputs.notes }}
+        run: |
+          gh release create "$TAG_NAME" \
+            --title "$TAG_NAME" \
+            --notes "$RELEASE_NOTES"
+RLEOF
+  success "Release workflow generated (.github/workflows/release.yml)"
 }
 
 apply_permissions() {
@@ -1012,15 +1468,20 @@ show_summary() {
   echo "What's configured:"
   echo -e "  ${BOLD}CLAUDE.md${RESET}           Agent constitution + conventions"
   echo -e "  ${BOLD}.claude/settings${RESET}    Tiered permissions"
-  echo -e "  ${BOLD}.claude/skills/${RESET}     12 slash commands (/start, /plan, /backlog, /save, /load, ...)"
+  echo -e "  ${BOLD}.claude/skills/${RESET}     13 slash commands (/start, /plan, /backlog, /save, /load, ...)"
   echo -e "  ${BOLD}.claude/hooks/${RESET}      Main branch protection"
-  echo -e "  ${BOLD}.github/${RESET}            Issue templates, PR template"
+  echo -e "  ${BOLD}.github/${RESET}            Issue templates, PR template, CI workflow"
   echo -e "  ${BOLD}agents/${RESET}             8 agent specifications"
   echo -e "  ${BOLD}tasks/${RESET}              Plan, lessons, test registry"
   echo -e "  ${BOLD}Makefile${RESET}            test, lint, fmt, typecheck, build, check, setup-github"
+  echo -e "  ${BOLD}.pre-commit${RESET}         Linting + secret scanning on commit"
 
   if [[ "$LANGUAGE" != "none" ]]; then
     echo -e "  ${BOLD}Language${RESET}            $LANGUAGE (conventions, configs, tooling)"
+  fi
+
+  if [[ "$ENABLE_DOCKER" == true ]]; then
+    echo -e "  ${BOLD}Docker${RESET}              Dockerfile + docker-compose.yml"
   fi
 
   if [[ "$ENABLE_RALPH" == true ]]; then
@@ -1063,6 +1524,7 @@ main() {
   step_language
   step_permissions
   step_ralph
+  step_docker
   step_planning
   step_git_remote
   step_github_pm

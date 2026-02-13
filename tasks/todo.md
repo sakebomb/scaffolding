@@ -1,52 +1,49 @@
-# Task Plan — Happy Path Onboarding
+# Task Plan — Project Hardening (CI, Safety, DevEx, Docker, Updates, Releases)
 
 > Updated: 2026-02-13
-> Branch: `feat/happy-path-onboarding`
-> Status: In progress
+> Branch: `feat/project-hardening`
+> Status: Complete
 
 ## Objective
 
-Add a guided onboarding experience so a complete beginner can go from `./scaffold` to productively building with Claude Code — via a generated `GETTING_STARTED.md`, a `/start` skill, and richer post-scaffold output.
+Add 9 features that harden scaffolded projects for real-world use: CI workflows, pre-commit hooks, secret scanning, health checks, environment templates, Docker support, an update mechanism, and a release workflow.
 
 ## Plan
 
-### Step 1: Create `/start` skill (`.claude/skills/start/SKILL.md`) — moderate
-- [x] Interactive first-session command
-- [x] Asks "What do you want to build?" → chains into `/plan`
-- [x] Offers to create first GitHub issue via `/backlog new`
-- [x] Gives clear next action at each step
+### Phase 1: CI Workflows — items #1, #4
+- [x] 1. Create `.github/workflows/ci.yml` for scaffolding repo itself
+- [x] 2. Add CI template generation to scaffold — per-language setup
+- [x] 3. Add test assertions for generated CI workflow
 
-### Step 2: Create `GETTING_STARTED.md` generation in scaffold — moderate
-- [x] Written to project root during scaffold
-- [x] Step-by-step walkthrough of first 10 minutes
-- [x] Example prompts the user can copy-paste into Claude Code
-- [x] References available slash commands with one-line descriptions
-- [x] Language-specific "set up your environment" section
+### Phase 2: Pre-commit + Secret Scanning — items #2, #3
+- [x] 4. Create per-language `.pre-commit-config.yaml` generation
+- [x] 5. Add secret scanning via `detect-secrets` pre-commit hook
+- [x] 6. Add test assertions for pre-commit config
 
-### Step 3: Update `show_summary()` in scaffold — trivial
-- [x] Replace generic "Try: /plan" with example prompt
-- [x] Add "Read GETTING_STARTED.md for a full walkthrough"
-- [x] Update slash command count 11 → 12
+### Phase 3: /doctor + .env.example — items #5, #7
+- [x] 7. Create `/doctor` skill
+- [x] 8. Add `.env.example` template generation
+- [x] 9. Add test assertions for /doctor skill and .env.example
+- [x] 10. Update slash command count 12 → 13
 
-### Step 4: Update README.md — trivial
-- [x] Update command count 11 → 12
-- [x] Add `/start` to slash commands table
-- [x] Mention GETTING_STARTED.md in "What's Inside" or Quick Start
+### Phase 4: Docker Support — item #8
+- [x] 11. Add Docker step to scaffold (optional)
+- [x] 12. Create per-language Dockerfile templates (multi-stage where applicable)
+- [x] 13. Create `docker-compose.yml` template
+- [x] 14. Add test assertions for Docker files (Docker is optional — no assertions needed for default)
 
-### Step 5: Update CLAUDE.md — trivial
-- [x] Add `/start` to skills table
+### Phase 5: Update Mechanism — item #6
+- [x] 15. Add `scaffold --update` flag
+- [x] 16. Update `--help` text with new flag
+- [x] 17. Add safety: show diff, require confirmation
 
-### Step 6: Update tests — trivial
-- [x] Assert `GETTING_STARTED.md` exists
-- [x] Assert `.claude/skills/start/SKILL.md` exists
-- [x] Assert `GETTING_STARTED.md` contains project name (placeholder replaced)
+### Phase 6: CHANGELOG + Release Workflow — item #9
+- [x] 18. Add `CHANGELOG.md` template generation
+- [x] 19. Create `.github/workflows/release.yml` template
+- [x] 20. Add test assertions
 
-### Step 7: Run tests, commit, push, PR — trivial
-- [ ] All tests pass
-- [ ] Commit + push + PR
-
-## Decisions & Context
-
-- GETTING_STARTED.md is a generated file (not a template) — scaffold writes it inline so it can be customized with project name, language, and chosen options
-- `/start` is a one-time-use command — it guides the first session but isn't needed after that
-- Post-scaffold output should be actionable, not just informational — show what to literally type
+### Phase 7: Final Polish
+- [x] 21. Update README.md with all new features
+- [x] 22. Update CLAUDE.md skills table
+- [x] 23. Run full test suite — 347/347 passing
+- [x] 24. Commit, push, PR
