@@ -1,4 +1,4 @@
-# Scaffolding
+# Scaffold
 
 A project template and CLI for bootstrapping repositories optimized for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
@@ -8,7 +8,7 @@ Clone it, run `./scaffold`, and get a fully configured project with an agent con
 
 Starting a new project with Claude Code usually means spending your first few sessions teaching it how you want to work — your commit conventions, testing expectations, when to plan vs. just build, what's safe to auto-approve. That setup is repetitive and easy to get wrong.
 
-Scaffolding solves this by giving Claude Code the right context from the very first session:
+Scaffold solves this by giving Claude Code the right context from the very first session:
 
 - **An agent constitution** (`CLAUDE.md`) that defines guardrails, planning workflow, testing tiers, subagent delegation, and recovery patterns — so Claude operates with senior-engineer standards instead of guessing.
 - **Pre-configured permissions** (`.claude/settings.json`) with a tiered model — safe operations auto-approved, destructive operations always gated, and middle-ground operations that you decide during init.
@@ -37,13 +37,13 @@ claude
 ### Option B: Git Clone
 
 ```bash
-git clone https://github.com/sakebomb/scaffolding.git my-project
+git clone https://github.com/sakebomb/scaffold.git my-project
 cd my-project
 ./scaffold
 claude
 ```
 
-The scaffold script detects the cloned scaffolding history and reinitializes git automatically.
+The scaffold script detects the cloned scaffold history and reinitializes git automatically.
 
 Once inside Claude Code, type `/start` for a guided walkthrough, or see `GETTING_STARTED.md` for the full onboarding guide.
 
@@ -53,7 +53,7 @@ Running `./scaffold` walks you through an interactive setup:
 
 ```
 ╔═══════════════════════════════════════════════════╗
-║         Scaffolding — Claude Code Setup          ║
+║          Scaffold — Claude Code Setup            ║
 ╚═══════════════════════════════════════════════════╝
 
 ═══ Project Setup ═══
@@ -117,7 +117,7 @@ By default, the `scaffold` script and `templates/` directory are removed after i
 **Before** (what you clone):
 
 ```
-scaffolding/
+scaffold/
 ├── scaffold                    # Init script (removed after init)
 ├── templates/                  # Language configs (removed after init)
 │   ├── python/                 #   CONVENTIONS.md, pyproject.toml.tmpl, ruff.toml, ...
@@ -312,7 +312,7 @@ Language-aware with auto-detection (Cargo.toml, go.mod, tsconfig.json, pyproject
 
 ### GitHub Project Management
 
-Scaffolding includes issue templates, a PR template, and label taxonomy to integrate with GitHub's project management features:
+Scaffold includes issue templates, a PR template, and label taxonomy to integrate with GitHub's project management features:
 
 - **Issue templates** (`.github/ISSUE_TEMPLATE/`) — form-based templates for bugs, features, and tasks with structured fields (severity, scope, acceptance criteria)
 - **PR template** (`.github/pull_request_template.md`) — standardized format with What/Why/How sections, test plan checklist, and issue linking
@@ -348,14 +348,14 @@ When enabled during `./scaffold` init, adds production-ready Docker support:
 
 ### Updating Existing Projects
 
-If scaffolding improves after you've already scaffolded a project, you can pull updates:
+If scaffold improves after you've already scaffolded a project, you can pull updates:
 
 ```bash
 # Requires the scaffold script (use --keep during init, or re-download)
 ./scaffold --update
 ```
 
-This compares your `.claude/skills/`, `.claude/hooks/`, and `agents/` against the latest from the scaffolding repo, shows a diff, and applies changes with your confirmation.
+This compares your `.claude/skills/`, `.claude/hooks/`, and `agents/` against the latest from the scaffold repo, shows a diff, and applies changes with your confirmation.
 
 ## Supported Languages
 
@@ -407,7 +407,7 @@ bash tests/test_scaffold.sh permissions
 ### Project Structure for Contributors
 
 ```
-scaffolding/
+scaffold/
 ├── scaffold                    # Main init script (bash)
 ├── templates/                  # Language templates + Ralph Wiggum
 ├── .claude/                    # Claude Code configuration

@@ -11,7 +11,7 @@ Add 9 features that harden scaffolded projects for real-world use: CI workflows,
 ## Plan
 
 ### Phase 1: CI Workflows — items #1, #4
-- [x] 1. Create `.github/workflows/ci.yml` for scaffolding repo itself
+- [x] 1. Create `.github/workflows/ci.yml` for scaffold repo itself
 - [x] 2. Add CI template generation to scaffold — per-language setup
 - [x] 3. Add test assertions for generated CI workflow
 

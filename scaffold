@@ -133,14 +133,14 @@ prompt_choice() {
 # Parse CLI flags
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-# Update mode — pull latest skills, agents, hooks from scaffolding repo
+# Update mode — pull latest skills, agents, hooks from scaffold repo
 # ---------------------------------------------------------------------------
-SCAFFOLDING_REPO="https://raw.githubusercontent.com/sakebomb/scaffolding/main"
+SCAFFOLD_REPO="https://raw.githubusercontent.com/sakebomb/scaffold/main"
 
 run_update() {
-  header "Scaffolding Update"
+  header "Scaffold Update"
 
-  info "Checking for updates from scaffolding repo..."
+  info "Checking for updates from scaffold repo..."
   echo ""
 
   if ! command -v curl &>/dev/null; then
@@ -171,7 +171,7 @@ run_update() {
   trap 'rm -rf "$tmp_dir"' EXIT
 
   for rel_path in "${update_files[@]}"; do
-    local url="$SCAFFOLDING_REPO/$rel_path"
+    local url="$SCAFFOLD_REPO/$rel_path"
     local tmp_file="$tmp_dir/$rel_path"
     mkdir -p "$(dirname "$tmp_file")"
 
@@ -270,7 +270,7 @@ Options:
   --help, -h          Show this help message
   --keep              Don't remove scaffold artifacts after init
   --non-interactive   Use defaults for all prompts (for CI/automation)
-  --update            Update skills, agents, and hooks from scaffolding repo
+  --update            Update skills, agents, and hooks from scaffold repo
 
 What it does:
   1. Asks for project name, description, and language
@@ -807,7 +807,7 @@ RUST
     success "Ralph Wiggum installed (scripts/ralph-loop.sh)"
   fi
 
-  # --- Generate project README (replaces scaffolding README) ---
+  # --- Generate project README (replaces scaffold README) ---
   info "Generating project README..."
   local getting_started=""
   case "$LANGUAGE" in
@@ -1082,7 +1082,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- Initial project setup with scaffolding framework
+- Initial project setup with scaffold framework
 CHLOG
   success "CHANGELOG.md generated"
 
@@ -1407,12 +1407,12 @@ cleanup_artifacts() {
 init_git() {
   header "Git Initialization"
 
-  # If cloned from scaffolding repo, remove the cloned .git to start fresh
+  # If cloned from scaffold repo, remove the cloned .git to start fresh
   if [[ -d "$SCRIPT_DIR/.git" ]]; then
     local remote_url
     remote_url="$(git -C "$SCRIPT_DIR" remote get-url origin 2>/dev/null || echo "")"
-    if [[ "$remote_url" == *"sakebomb/scaffolding"* ]]; then
-      info "Removing cloned scaffolding git history..."
+    if [[ "$remote_url" == *"sakebomb/scaffold"* ]]; then
+      info "Removing cloned scaffold git history..."
       rm -rf "$SCRIPT_DIR/.git"
     fi
   fi
@@ -1437,7 +1437,7 @@ init_git() {
   info "Creating initial commit..."
   git -C "$SCRIPT_DIR" add -A
   git -C "$SCRIPT_DIR" commit -m "$(cat <<'EOF'
-feat: initialize project with scaffolding framework
+feat: initialize project with scaffold framework
 
 - CLAUDE.md agent constitution with project conventions
 - .claude/ settings, skills (slash commands), and hooks
@@ -1446,7 +1446,7 @@ feat: initialize project with scaffolding framework
 - Agent specifications
 - Language-aware Makefile
 
-Scaffolded with https://github.com/sakebomb/scaffolding
+Scaffolded with https://github.com/sakebomb/scaffold
 EOF
   )"
   success "Initial commit created"
@@ -1517,7 +1517,7 @@ main() {
 
   echo ""
   echo -e "${BOLD}╔═══════════════════════════════════════════════════╗${RESET}"
-  echo -e "${BOLD}║         Scaffolding — Claude Code Setup          ║${RESET}"
+  echo -e "${BOLD}║          Scaffold — Claude Code Setup            ║${RESET}"
   echo -e "${BOLD}╚═══════════════════════════════════════════════════╝${RESET}"
 
   step_project_basics
