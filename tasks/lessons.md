@@ -46,6 +46,30 @@ Mistake: Used `output=$(command) || true; local exit=$?` — the `|| true` makes
 Rule: Use `local exit=0; output=$(command) || exit=$?` pattern to capture both output and exit code.
 Added: 2026-02-13
 
+Pattern: macOS BSD sed requires `sed -i ''` (empty backup extension)
+Tags: bash, macos, portability, ci
+Mistake: `sed -i "expression" file` works on GNU sed (Linux) but fails on BSD sed (macOS) which interprets the expression as the backup suffix.
+Rule: Never use `sed -i` directly. Always use a `sed_inplace()` wrapper that detects GNU vs BSD via `sed --version >/dev/null 2>&1`.
+Added: 2026-02-13
+
+Pattern: Bash 3.2 empty arrays + `set -u` = unbound variable
+Tags: bash, macos, portability
+Mistake: `"${array[@]}"` throws "unbound variable" on bash 3.2 with `set -u` when the array is empty. Works fine on bash 4.4+.
+Rule: Guard array iteration with `[[ ${#array[@]} -gt 0 ]]` or `[[ -n "$source_var" ]]` before populating/iterating. Alternatively use `${array[@]+"${array[@]}"}`.
+Added: 2026-02-13
+
+Pattern: BSD awk can't handle newlines in `-v` variable assignments
+Tags: bash, macos, portability, awk
+Mistake: `awk -v var="$multiline_string" '...'` fails on macOS BSD awk with "newline in string" error.
+Rule: Use `VARNAME="$value" awk '... ENVIRON["VARNAME"] ...'` for multiline variables. ENVIRON is POSIX and works on both GNU and BSD awk.
+Added: 2026-02-13
+
+Pattern: CI test helpers must surface errors, not swallow them
+Tags: testing, ci, debugging
+Mistake: Direct `./scaffold ... > /dev/null 2>&1` calls hid all scaffold errors in CI, making failures impossible to diagnose.
+Rule: Always use a wrapper function that captures output and surfaces it to stderr on failure. Hidden errors = wasted CI debugging cycles.
+Added: 2026-02-13
+
 ---
 
 ## What Works (Positive Patterns)
