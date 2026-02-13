@@ -12,5 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure git for tests
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@test"
+
       - name: Run scaffold behavior tests
         run: bash tests/test_scaffold.sh
