@@ -57,6 +57,8 @@ ENABLE_VSCODE=false
 ARCHETYPE="none"
 ADD_LANGUAGE=""
 ADD_DIR=""
+ADD_MODE=false
+VERIFY_MODE=false
 MIGRATE_MODE=false
 SCAFFOLD_VERSION="0.3.0"
 
@@ -366,7 +368,7 @@ _scaffold_completions() {
   fi
 
   # Complete flags
-  local flags="--help --keep --non-interactive --dry-run --update --completions --version --migrate --add --dir --save-defaults"
+  local flags="--help --keep --non-interactive --dry-run --update --completions --version --migrate --add --dir --save-defaults --verify --install-template --list-templates"
   COMPREPLY=($(compgen -W "$flags" -- "$cur"))
 }
 
@@ -397,6 +399,9 @@ _scaffold() {
     '--add[Layer a second language]:language:(python typescript go rust)'
     '--dir[Place language files in subdirectory]:directory:_directories'
     '--save-defaults[Save choices to ~/.scaffoldrc]'
+    '--verify[Validate a scaffolded project]'
+    '--install-template[Install a community template]:source:_files'
+    '--list-templates[List available language templates]'
   )
   _arguments -s $flags
 }
@@ -509,15 +514,20 @@ parse_flags() {
         shift
         ;;
       --add)
-        if [[ -z "${2:-}" ]]; then
-          error "--add requires a language argument (python, typescript, go, rust)"
-          exit 1
+        ADD_MODE=true
+        if [[ -n "${2:-}" && ! "$2" =~ ^-- ]]; then
+          local user_tpl="${SCAFFOLD_HOME:-$HOME/.scaffold}/templates"
+          if [[ -d "$TEMPLATE_DIR/$2" || -d "$user_tpl/$2" ]]; then
+            ADD_LANGUAGE="$2"
+          else
+            error "Unsupported language: $2"
+            info "Run --list-templates to see available languages"
+            exit 1
+          fi
+          shift 2
+        else
+          shift
         fi
-        case "$2" in
-          python|typescript|go|rust) ADD_LANGUAGE="$2" ;;
-          *) error "Unsupported language: $2 (choose: python, typescript, go, rust)"; exit 1 ;;
-        esac
-        shift 2
         ;;
       --dir)
         if [[ -z "${2:-}" ]]; then
@@ -526,6 +536,22 @@ parse_flags() {
         fi
         ADD_DIR="$2"
         shift 2
+        ;;
+      --verify)
+        VERIFY_MODE=true
+        shift
+        ;;
+      --install-template)
+        if [[ -z "${2:-}" ]]; then
+          error "--install-template requires a URL or path argument"
+          exit 1
+        fi
+        install_template "$2"
+        exit $?
+        ;;
+      --list-templates)
+        list_templates
+        exit 0
         ;;
       --save-defaults)
         SAVE_DEFAULTS=true
@@ -540,8 +566,8 @@ parse_flags() {
   done
 
   # --dir is only valid with --add
-  if [[ -n "$ADD_DIR" && -z "$ADD_LANGUAGE" ]]; then
-    error "--dir can only be used with --add <language>"
+  if [[ -n "$ADD_DIR" && "$ADD_MODE" != true ]]; then
+    error "--dir can only be used with --add"
     exit 1
   fi
 }
@@ -562,9 +588,13 @@ Options:
   --completions [sh]  Output completion script (bash or zsh, auto-detects)
   --version           Print scaffold version
   --migrate           Add scaffold to an existing project (auto-detects language)
-  --add <lang>        Layer a second language into an existing project
+  --add [lang]        Layer a second language into an existing project
                       Supported: python, typescript, go, rust
+                      Omit language for interactive selection
   --dir <path>        With --add: place language files in subdirectory (monorepo)
+  --verify            Validate a scaffolded project (check files, placeholders, JSON)
+  --install-template <url>  Install a community language template
+  --list-templates    List built-in and installed language templates
   --save-defaults     Save current choices to ~/.scaffoldrc for future runs
 
 What it does:
@@ -3125,14 +3155,256 @@ MKEOF
 }
 
 # ---------------------------------------------------------------------------
+# Verify mode — post-scaffold health check
+# ---------------------------------------------------------------------------
+run_verify() {
+  local checks=0 passed=0 failed=0
+
+  echo -e "${BOLD}Scaffold Verification${RESET}"
+  echo ""
+
+  # Check 1: Git repo initialized
+  checks=$((checks + 1))
+  if [[ -d ".git" ]]; then
+    echo -e "  ${GREEN}PASS${RESET} Git repository initialized"
+    passed=$((passed + 1))
+  else
+    echo -e "  ${RED}FAIL${RESET} Git repository not initialized (.git/ missing)"
+    failed=$((failed + 1))
+  fi
+
+  # Check 2: Required files exist
+  local required_files=("CLAUDE.md" ".claude/settings.json" "Makefile" ".gitignore")
+  for f in "${required_files[@]}"; do
+    checks=$((checks + 1))
+    if [[ -f "$f" ]]; then
+      echo -e "  ${GREEN}PASS${RESET} Required file exists: $f"
+      passed=$((passed + 1))
+    else
+      echo -e "  ${RED}FAIL${RESET} Required file missing: $f"
+      failed=$((failed + 1))
+    fi
+  done
+
+  # Check 3: .scaffold-version exists
+  checks=$((checks + 1))
+  if [[ -f ".scaffold-version" ]]; then
+    echo -e "  ${GREEN}PASS${RESET} Version file exists: .scaffold-version"
+    passed=$((passed + 1))
+  else
+    echo -e "  ${RED}FAIL${RESET} Version file missing: .scaffold-version"
+    failed=$((failed + 1))
+  fi
+
+  # Check 4: .claude/settings.json is valid JSON
+  checks=$((checks + 1))
+  if [[ -f ".claude/settings.json" ]]; then
+    if python3 -m json.tool ".claude/settings.json" > /dev/null 2>&1; then
+      echo -e "  ${GREEN}PASS${RESET} .claude/settings.json is valid JSON"
+      passed=$((passed + 1))
+    else
+      echo -e "  ${RED}FAIL${RESET} .claude/settings.json is not valid JSON"
+      failed=$((failed + 1))
+    fi
+  else
+    # Already counted as missing above; skip duplicate
+    passed=$((passed + 1))
+  fi
+
+  # Check 5: No leftover placeholders in project files
+  checks=$((checks + 1))
+  local placeholder_files
+  placeholder_files=$(grep -rl '{{PROJECT_NAME}}\|{{PROJECT_DESCRIPTION}}' --include='*.md' --include='*.json' --include='*.toml' --include='*.yaml' --include='*.yml' . 2>/dev/null | grep -v -e '.git/' -e 'templates/' -e 'scratch/' -e 'scaffold' || true)
+  if [[ -z "$placeholder_files" ]]; then
+    echo -e "  ${GREEN}PASS${RESET} No leftover {{placeholders}} found"
+    passed=$((passed + 1))
+  else
+    echo -e "  ${RED}FAIL${RESET} Leftover placeholders found in:"
+    echo "$placeholder_files" | while read -r pf; do
+      echo -e "         $pf"
+    done
+    failed=$((failed + 1))
+  fi
+
+  # Summary
+  echo ""
+  echo -e "${BOLD}Verification: $passed/$checks checks passed${RESET}"
+  if [[ $failed -gt 0 ]]; then
+    echo -e "${RED}$failed check(s) failed${RESET}"
+    return 1
+  else
+    echo -e "${GREEN}All checks passed${RESET}"
+    return 0
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Template registry — install and list community templates
+# ---------------------------------------------------------------------------
+list_available_languages() {
+  local langs=()
+
+  # Built-in languages
+  for dir in "$TEMPLATE_DIR"/*/; do
+    [[ -d "$dir" ]] || continue
+    local name
+    name="$(basename "$dir")"
+    # Skip non-language template dirs (e.g., ralph)
+    case "$name" in
+      ralph) continue ;;
+    esac
+    [[ -f "$dir/CONVENTIONS.md" ]] && langs+=("$name")
+  done
+
+  # Installed community templates
+  local user_templates="${SCAFFOLD_HOME:-$HOME/.scaffold}/templates"
+  if [[ -d "$user_templates" ]]; then
+    for dir in "$user_templates"/*/; do
+      [[ -d "$dir" ]] || continue
+      local name
+      name="$(basename "$dir")"
+      # Skip if same name as built-in
+      local is_builtin=false
+      for builtin in "${langs[@]}"; do
+        [[ "$builtin" == "$name" ]] && is_builtin=true && break
+      done
+      [[ "$is_builtin" == true ]] && continue
+      [[ -f "$dir/CONVENTIONS.md" ]] && langs+=("$name")
+    done
+  fi
+
+  printf '%s\n' "${langs[@]}"
+}
+
+validate_template() {
+  local template_dir="$1"
+  local errors=0
+
+  if [[ ! -f "$template_dir/CONVENTIONS.md" ]]; then
+    error "Template missing required file: CONVENTIONS.md"
+    errors=$((errors + 1))
+  fi
+
+  if [[ ! -f "$template_dir/gitignore.append" ]]; then
+    error "Template missing required file: gitignore.append"
+    errors=$((errors + 1))
+  fi
+
+  return $errors
+}
+
+install_template() {
+  local source="$1"
+  local user_templates="${SCAFFOLD_HOME:-$HOME/.scaffold}/templates"
+
+  # Determine template name from source
+  local name
+  if [[ -d "$source" ]]; then
+    # Local directory
+    name="$(basename "$source")"
+  else
+    # Git URL — extract repo name, strip .git suffix and scaffold-template- prefix
+    name="$(basename "$source" .git)"
+    name="${name#scaffold-template-}"
+    name="${name#scaffold-}"
+  fi
+
+  local target_dir="$user_templates/$name"
+
+  if [[ -d "$target_dir" ]]; then
+    warn "Template '$name' already installed at $target_dir"
+    info "Remove it first to reinstall: rm -rf $target_dir"
+    return 1
+  fi
+
+  mkdir -p "$user_templates"
+
+  if [[ -d "$source" ]]; then
+    # Local directory — copy
+    cp -r "$source" "$target_dir"
+  else
+    # Git URL — clone
+    info "Cloning template from $source..."
+    if ! git clone --depth 1 "$source" "$target_dir" 2>/dev/null; then
+      error "Failed to clone template from $source"
+      return 1
+    fi
+    # Remove .git from cloned template
+    rm -rf "$target_dir/.git"
+  fi
+
+  # Validate
+  if ! validate_template "$target_dir"; then
+    error "Template validation failed — removing $target_dir"
+    rm -rf "$target_dir"
+    return 1
+  fi
+
+  success "Template '$name' installed to $target_dir"
+  info "Use with: scaffold --add $name"
+}
+
+list_templates() {
+  echo -e "${BOLD}Available Language Templates${RESET}"
+  echo ""
+
+  echo -e "  ${BOLD}Built-in:${RESET}"
+  for dir in "$TEMPLATE_DIR"/*/; do
+    [[ -d "$dir" ]] || continue
+    local name
+    name="$(basename "$dir")"
+    case "$name" in
+      ralph) continue ;;
+    esac
+    [[ -f "$dir/CONVENTIONS.md" ]] || continue
+    echo -e "    $name"
+  done
+
+  local user_templates="${SCAFFOLD_HOME:-$HOME/.scaffold}/templates"
+  if [[ -d "$user_templates" ]]; then
+    local has_custom=false
+    for dir in "$user_templates"/*/; do
+      [[ -d "$dir" ]] || continue
+      local name
+      name="$(basename "$dir")"
+      [[ -f "$dir/CONVENTIONS.md" ]] || continue
+      if [[ "$has_custom" == false ]]; then
+        echo ""
+        echo -e "  ${BOLD}Installed:${RESET}"
+        has_custom=true
+      fi
+      echo -e "    $name"
+    done
+    if [[ "$has_custom" == false ]]; then
+      echo ""
+      echo -e "  ${DIM}No community templates installed.${RESET}"
+      echo -e "  ${DIM}Install with: scaffold --install-template <url-or-path>${RESET}"
+    fi
+  else
+    echo ""
+    echo -e "  ${DIM}No community templates installed.${RESET}"
+    echo -e "  ${DIM}Install with: scaffold --install-template <url-or-path>${RESET}"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
   load_scaffoldrc
   parse_flags "$@"
 
+  # --verify mode: validate scaffolded project and exit
+  if [[ "$VERIFY_MODE" == true ]]; then
+    run_verify
+    exit $?
+  fi
+
   # --add mode: layer a second language and exit
-  if [[ -n "$ADD_LANGUAGE" ]]; then
+  if [[ "$ADD_MODE" == true ]]; then
+    if [[ -z "$ADD_LANGUAGE" ]]; then
+      prompt_choice ADD_LANGUAGE "Select language to add:" python typescript go rust
+    fi
     run_add_language
     exit 0
   fi

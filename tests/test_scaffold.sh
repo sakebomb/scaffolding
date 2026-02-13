@@ -1579,6 +1579,280 @@ GOEOF
 }
 
 # ---------------------------------------------------------------------------
+# Test: Interactive --add (no language arg) defaults to python in non-interactive
+# ---------------------------------------------------------------------------
+test_add_interactive() {
+  echo -e "\n${BOLD}Test: --add (interactive, non-interactive fallback)${RESET}"
+  setup_test "add-interactive"
+
+  # First: scaffold a Go project with --keep
+  force_language "go"
+  cd "$WORK_DIR" && ./scaffold --non-interactive --keep > /dev/null 2>&1
+  cd "$SCRIPT_DIR"
+
+  # Verify it's a Go project
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/go.mod" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Base project should have go.mod"
+  fi
+
+  # Now use --add without language arg in non-interactive mode → defaults to python
+  cd "$WORK_DIR" && ./scaffold --add --non-interactive > /dev/null 2>&1
+  cd "$SCRIPT_DIR"
+
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/pyproject.toml" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --add without arg should default to python (pyproject.toml)"
+  fi
+
+  # CLAUDE.md should have Python Conventions
+  TOTAL=$((TOTAL + 1))
+  if grep -q "Python Conventions" "$WORK_DIR/CLAUDE.md"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} CLAUDE.md should contain Python Conventions after --add"
+  fi
+
+  teardown_test
+}
+
+# ---------------------------------------------------------------------------
+# Test: --add with explicit language still works
+# ---------------------------------------------------------------------------
+test_add_explicit() {
+  echo -e "\n${BOLD}Test: --add go (explicit language still works)${RESET}"
+  setup_test "add-explicit"
+
+  # Scaffold a python project with --keep
+  cd "$WORK_DIR" && ./scaffold --non-interactive --keep > /dev/null 2>&1
+  cd "$SCRIPT_DIR"
+
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/pyproject.toml" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Base project should have pyproject.toml"
+  fi
+
+  # Add go explicitly
+  cd "$WORK_DIR" && ./scaffold --add go > /dev/null 2>&1
+  cd "$SCRIPT_DIR"
+
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/go.mod" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --add go should create go.mod"
+  fi
+
+  teardown_test
+}
+
+# ---------------------------------------------------------------------------
+# Test: --verify on a fresh scaffold
+# ---------------------------------------------------------------------------
+test_verify_pass() {
+  echo -e "\n${BOLD}Test: --verify on fresh scaffold (should pass)${RESET}"
+  setup_test "verify-pass"
+
+  # Scaffold a project
+  cd "$WORK_DIR" && ./scaffold --non-interactive --keep > /dev/null 2>&1
+  cd "$SCRIPT_DIR"
+
+  # Run --verify
+  local verify_output verify_exit=0
+  verify_output=$(cd "$WORK_DIR" && ./scaffold --verify 2>&1) || verify_exit=$?
+
+  # Should exit 0
+  TOTAL=$((TOTAL + 1))
+  if [[ $verify_exit -eq 0 ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --verify should exit 0 on fresh scaffold (got $verify_exit)"
+    echo -e "  ${DIM}Output: $verify_output${RESET}"
+  fi
+
+  # Should contain "All checks passed"
+  TOTAL=$((TOTAL + 1))
+  if echo "$verify_output" | grep -q "All checks passed"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --verify output should contain 'All checks passed'"
+  fi
+
+  # Should report PASS for CLAUDE.md
+  TOTAL=$((TOTAL + 1))
+  if echo "$verify_output" | grep -q "PASS.*CLAUDE.md"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --verify should report PASS for CLAUDE.md"
+  fi
+
+  # Should report PASS for .claude/settings.json
+  TOTAL=$((TOTAL + 1))
+  if echo "$verify_output" | grep -q "PASS.*settings.json"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --verify should report PASS for settings.json"
+  fi
+
+  teardown_test
+}
+
+# ---------------------------------------------------------------------------
+# Test: --verify detects leftover placeholder
+# ---------------------------------------------------------------------------
+test_verify_fail() {
+  echo -e "\n${BOLD}Test: --verify detects leftover placeholder${RESET}"
+  setup_test "verify-fail"
+
+  # Scaffold a project
+  cd "$WORK_DIR" && ./scaffold --non-interactive --keep > /dev/null 2>&1
+  cd "$SCRIPT_DIR"
+
+  # Inject a leftover placeholder
+  echo "This is {{PROJECT_NAME}} placeholder" >> "$WORK_DIR/CLAUDE.md"
+
+  # Run --verify
+  local verify_output verify_exit=0
+  verify_output=$(cd "$WORK_DIR" && ./scaffold --verify 2>&1) || verify_exit=$?
+
+  # Should exit non-zero
+  TOTAL=$((TOTAL + 1))
+  if [[ $verify_exit -ne 0 ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --verify should exit non-zero when placeholders found"
+  fi
+
+  # Should report placeholder failure
+  TOTAL=$((TOTAL + 1))
+  if echo "$verify_output" | grep -q "FAIL.*placeholder"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --verify should report placeholder failure"
+  fi
+
+  teardown_test
+}
+
+# ---------------------------------------------------------------------------
+# Test: --install-template from local path + --list-templates
+# ---------------------------------------------------------------------------
+test_install_template() {
+  echo -e "\n${BOLD}Test: --install-template from local path${RESET}"
+  setup_test "install-tpl"
+
+  # Create a fake template directory
+  local tpl_dir="$WORK_DIR/my-ruby-template"
+  mkdir -p "$tpl_dir"
+  cat > "$tpl_dir/CONVENTIONS.md" <<'CONV'
+# Ruby Conventions
+- Use RuboCop for linting
+CONV
+  cat > "$tpl_dir/gitignore.append" <<'GI'
+# Ruby
+*.gem
+GI
+
+  # Install it
+  local install_output
+  install_output=$(cd "$WORK_DIR" && SCAFFOLD_HOME="$WORK_DIR/.scaffold-home" ./scaffold --install-template "$tpl_dir" 2>&1)
+
+  # Template should be installed
+  TOTAL=$((TOTAL + 1))
+  if [[ -d "$WORK_DIR/.scaffold-home/templates/my-ruby-template" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Template should be installed to ~/.scaffold/templates/my-ruby-template"
+  fi
+
+  # CONVENTIONS.md should be present in installed template
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/.scaffold-home/templates/my-ruby-template/CONVENTIONS.md" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Installed template should contain CONVENTIONS.md"
+  fi
+
+  # --list-templates should show it
+  local list_output
+  list_output=$(cd "$WORK_DIR" && SCAFFOLD_HOME="$WORK_DIR/.scaffold-home" ./scaffold --list-templates 2>&1)
+
+  TOTAL=$((TOTAL + 1))
+  if echo "$list_output" | grep -q "my-ruby-template"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --list-templates should show installed template"
+  fi
+
+  # --list-templates should also show built-in
+  TOTAL=$((TOTAL + 1))
+  if echo "$list_output" | grep -q "python"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --list-templates should show built-in python"
+  fi
+
+  teardown_test
+}
+
+# ---------------------------------------------------------------------------
+# Test: --install-template with invalid template
+# ---------------------------------------------------------------------------
+test_install_template_invalid() {
+  echo -e "\n${BOLD}Test: --install-template with invalid template${RESET}"
+  setup_test "install-tpl-bad"
+
+  # Create a template directory without required files
+  local tpl_dir="$WORK_DIR/bad-template"
+  mkdir -p "$tpl_dir"
+  echo "# Just a readme" > "$tpl_dir/README.md"
+
+  # Install should fail
+  local install_output install_exit=0
+  install_output=$(cd "$WORK_DIR" && SCAFFOLD_HOME="$WORK_DIR/.scaffold-home" ./scaffold --install-template "$tpl_dir" 2>&1) || install_exit=$?
+
+  TOTAL=$((TOTAL + 1))
+  if [[ $install_exit -ne 0 ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --install-template should fail for invalid template"
+  fi
+
+  # Template should NOT be installed (cleaned up)
+  TOTAL=$((TOTAL + 1))
+  if [[ ! -d "$WORK_DIR/.scaffold-home/templates/bad-template" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Invalid template should be cleaned up after validation failure"
+  fi
+
+  teardown_test
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
@@ -1611,6 +1885,12 @@ main() {
     completions-bash) test_completions_bash_explicit ;;
     add-dir)        test_add_dir ;;
     version-file)   test_scaffold_version_file ;;
+    add-interactive) test_add_interactive ;;
+    add-explicit)   test_add_explicit ;;
+    verify-pass)    test_verify_pass ;;
+    verify-fail)    test_verify_fail ;;
+    install-tpl)    test_install_template ;;
+    install-tpl-bad) test_install_template_invalid ;;
     smoke-python)   test_smoke_python ;;
     smoke-go)       test_smoke_go ;;
     smoke)
@@ -1648,12 +1928,18 @@ main() {
       test_completions_bash_explicit
       test_add_dir
       test_scaffold_version_file
+      test_add_interactive
+      test_add_explicit
+      test_verify_pass
+      test_verify_fail
+      test_install_template
+      test_install_template_invalid
       test_smoke_python
       test_smoke_go
       ;;
     *)
       echo "Unknown test: $filter"
-      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|completions|rollback|add-language|version|migrate|migrate-idem|scaffoldrc|scaffoldrc-ovr|completions-zsh|completions-bash|add-dir|version-file|smoke|smoke-python|smoke-go|archetypes|all]"
+      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|completions|rollback|add-language|version|migrate|migrate-idem|scaffoldrc|scaffoldrc-ovr|completions-zsh|completions-bash|add-dir|version-file|add-interactive|add-explicit|verify-pass|verify-fail|install-tpl|install-tpl-bad|smoke|smoke-python|smoke-go|archetypes|all]"
       exit 1
       ;;
   esac
