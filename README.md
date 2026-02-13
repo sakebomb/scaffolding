@@ -12,7 +12,7 @@ Scaffolding solves this by giving Claude Code the right context from the very fi
 
 - **An agent constitution** (`CLAUDE.md`) that defines guardrails, planning workflow, testing tiers, subagent delegation, and recovery patterns — so Claude operates with senior-engineer standards instead of guessing.
 - **Pre-configured permissions** (`.claude/settings.json`) with a tiered model — safe operations auto-approved, destructive operations always gated, and middle-ground operations that you decide during init.
-- **12 slash commands** (`/start`, `/plan`, `/review`, `/test`, `/lesson`, `/checkpoint`, `/status`, `/simplify`, `/index`, `/save`, `/load`, `/backlog`) so common workflows are one command away.
+- **13 slash commands** (`/start`, `/plan`, `/review`, `/test`, `/lesson`, `/checkpoint`, `/status`, `/simplify`, `/index`, `/save`, `/load`, `/backlog`, `/doctor`) so common workflows are one command away.
 - **8 agent specifications** for subagent delegation — Plan, Research, Code Review, Test Runner, Build Validator, Code Architect, Code Simplifier, and Verify — each with defined context budgets and output contracts.
 - **A lessons-learned system** (`tasks/lessons.md`) that accumulates across sessions, so mistakes compound into preventive rules instead of being forgotten.
 - **Language-specific conventions** for Python, TypeScript, Go, and Rust that get appended to `CLAUDE.md` during init — best practices, linter configs, project structure, and testing patterns.
@@ -128,7 +128,7 @@ scaffolding/
 ├── CLAUDE.md                   # Agent constitution (with placeholders)
 ├── .claude/
 │   ├── settings.json           # Permission defaults
-│   ├── skills/                 # 12 slash commands
+│   ├── skills/                 # 13 slash commands
 │   └── hooks/                  # Main branch protection
 ├── .github/
 │   ├── ISSUE_TEMPLATE/         # Bug, feature, task templates
@@ -150,10 +150,13 @@ my-api/
 ├── .claude/
 │   ├── settings.json           # Permissions from your choices
 │   ├── skills/                 # /start, /plan, /review, /test, /lesson, /checkpoint,
-│   │                           #   /status, /simplify, /index, /save, /load, /backlog
+│   │                           #   /status, /simplify, /index, /save, /load, /backlog, /doctor
 │   └── hooks/                  # protect-main-branch.sh
 ├── .github/
 │   ├── ISSUE_TEMPLATE/         # Bug, feature, task issue forms
+│   ├── workflows/
+│   │   ├── ci.yml              # Lint + typecheck + test on PR
+│   │   └── release.yml         # GitHub Release on version tag
 │   └── pull_request_template.md
 ├── agents/                     # plan, research, code-review, test-runner, build-validator,
 │   └── *.md                    #   code-architect, code-simplifier, verify
@@ -177,6 +180,9 @@ my-api/
 │   └── ralph-loop.sh
 ├── PROMPT_build.md             # (Ralph Wiggum)
 ├── PROMPT_plan.md              # (Ralph Wiggum)
+├── .pre-commit-config.yaml     # Linting + secret scanning hooks
+├── .env.example                # Environment variable template
+├── CHANGELOG.md                # Keep a Changelog format
 ├── .gitignore                  # Base + Python entries
 └── LICENSE                     # MIT
 ```
@@ -224,6 +230,7 @@ A `GETTING_STARTED.md` file is also generated in your project with a full walkth
 | `/save` | Snapshot session state to `tasks/session.md` |
 | `/load` | Restore context from previous session and orient |
 | `/backlog` | Manage GitHub issues — view, pick, create, close work items |
+| `/doctor` | Check project health — environment, dependencies, tools |
 
 ### Agents
 
@@ -314,6 +321,42 @@ Scaffolding includes issue templates, a PR template, and label taxonomy to integ
 
 During `./scaffold` init, if the GitHub CLI is authenticated, you'll be prompted to create labels and optionally a GitHub Projects kanban board.
 
+### CI/CD
+
+Every scaffolded project gets GitHub Actions workflows out of the box:
+
+- **CI workflow** (`.github/workflows/ci.yml`) — runs `make check` (lint + typecheck + test) on every PR and push to main. Language-specific setup included (Python venv, Node.js, Go, Rust toolchain).
+- **Release workflow** (`.github/workflows/release.yml`) — triggered by version tags (`v*`). Extracts notes from `CHANGELOG.md` and creates a GitHub Release.
+- **CHANGELOG.md** — follows [Keep a Changelog](https://keepachangelog.com/) format, ready for versioned releases.
+
+### Pre-commit Hooks & Secret Scanning
+
+Scaffolded projects include a `.pre-commit-config.yaml` with:
+
+- **Common hooks** — trailing whitespace, end-of-file fixer, YAML validation, large file detection, merge conflict detection
+- **Language-specific linting** — ruff (Python), eslint (TypeScript), golangci-lint (Go), cargo fmt + clippy (Rust)
+- **Secret scanning** — `detect-secrets` catches accidentally staged API keys, tokens, and credentials
+
+To activate: `pip install pre-commit && pre-commit install`
+
+### Docker (Optional)
+
+When enabled during `./scaffold` init, adds production-ready Docker support:
+
+- **Dockerfile** — language-specific with multi-stage builds (Go, Rust, TypeScript) or slim images (Python)
+- **docker-compose.yml** — app service with commented-out database example
+
+### Updating Existing Projects
+
+If scaffolding improves after you've already scaffolded a project, you can pull updates:
+
+```bash
+# Requires the scaffold script (use --keep during init, or re-download)
+./scaffold --update
+```
+
+This compares your `.claude/skills/`, `.claude/hooks/`, and `agents/` against the latest from the scaffolding repo, shows a diff, and applies changes with your confirmation.
+
 ## Supported Languages
 
 | Language | Linter | Formatter | Type Checker | Test Runner | Config Files |
@@ -346,7 +389,7 @@ During `./scaffold` init, if the GitHub CLI is authenticated, you'll be prompted
 ### Running Tests
 
 ```bash
-# All tests (7 suites, 317 assertions)
+# All tests (7 suites, 347 assertions)
 bash tests/test_scaffold.sh
 
 # Single language
@@ -369,9 +412,9 @@ scaffolding/
 ├── templates/                  # Language templates + Ralph Wiggum
 ├── .claude/                    # Claude Code configuration
 │   ├── settings.json           # Permission tiers
-│   ├── skills/                 # Slash command definitions (12 commands)
+│   ├── skills/                 # Slash command definitions (13 commands)
 │   └── hooks/                  # Git safety hooks
-├── .github/                    # Issue templates + PR template
+├── .github/                    # Issue templates, PR template, CI/release workflows
 ├── agents/                     # Agent specifications
 ├── tasks/                      # Plan, lessons, test registry
 ├── tests/

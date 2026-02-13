@@ -212,6 +212,7 @@ The following slash commands are available via `.claude/skills/`:
 | `/review [scope]` | Review code changes with Four Questions validation |
 | `/test [tier]` | Run tests, analyze failures, propose fixes |
 | `/backlog [show\|new\|pick #N\|close #N]` | Manage GitHub issues backlog — view, pick, or create work items |
+| `/doctor` | Check project health — environment, dependencies, tools, and configuration |
 | `/lesson <description>` | Record a lesson (mistake, positive pattern, troubleshooting, insight) |
 | `/checkpoint [message]` | Commit working state and update task tracking |
 | `/status` | Show current project progress and what's next |
