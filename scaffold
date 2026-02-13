@@ -38,6 +38,7 @@ ALLOW_DOCKER=false
 SETUP_LABELS=false
 SETUP_KANBAN=false
 ENABLE_DOCKER=false
+ENABLE_VSCODE=false
 ARCHETYPE="none"
 
 # Colors (disabled if not a terminal)
@@ -313,6 +314,7 @@ dry_run_report() {
   echo -e "  ${BOLD}Language:${RESET}    $LANGUAGE"
   echo -e "  ${BOLD}Archetype:${RESET}  $ARCHETYPE"
   echo -e "  ${BOLD}Docker:${RESET}      $ENABLE_DOCKER"
+  echo -e "  ${BOLD}VS Code:${RESET}    $ENABLE_VSCODE"
   echo -e "  ${BOLD}Ralph:${RESET}       $ENABLE_RALPH"
   echo ""
   echo -e "${BOLD}Files that would be created:${RESET}"
@@ -327,6 +329,7 @@ dry_run_report() {
   echo "  .gitignore"
   echo "  .env.example"
   echo "  CHANGELOG.md"
+  echo "  SECURITY.md"
   echo "  .pre-commit-config.yaml"
   echo "  .claude/settings.json"
   echo "  .claude/hooks/protect-main-branch.sh"
@@ -410,6 +413,12 @@ dry_run_report() {
   if [[ "$ENABLE_DOCKER" == true ]]; then
     echo "  Dockerfile"
     echo "  docker-compose.yml"
+  fi
+
+  # VS Code
+  if [[ "$ENABLE_VSCODE" == true ]]; then
+    echo "  .vscode/settings.json"
+    echo "  .vscode/extensions.json"
   fi
 
   # Ralph
@@ -569,6 +578,18 @@ step_docker() {
     success "Docker enabled"
   else
     info "Skipped. You can add Docker later."
+  fi
+}
+
+step_vscode() {
+  header "VS Code Settings (Optional)"
+
+  prompt_yn ENABLE_VSCODE "Include .vscode/ settings and recommended extensions?" false
+
+  if [[ "$ENABLE_VSCODE" == true ]]; then
+    success "VS Code settings enabled"
+  else
+    info "Skipped. You can add .vscode/ settings later."
   fi
 }
 
@@ -1445,8 +1466,30 @@ cargo build" ;;
       getting_started="# Install dependencies (configure for your language)" ;;
   esac
 
+  # Build badges line
+  local badges=""
+  local lang_badge=""
+  case "$LANGUAGE" in
+    python)     lang_badge="![Python](https://img.shields.io/badge/python-3.12-blue.svg)" ;;
+    typescript) lang_badge="![TypeScript](https://img.shields.io/badge/typescript-5.x-blue.svg)" ;;
+    go)         lang_badge="![Go](https://img.shields.io/badge/go-1.22-blue.svg)" ;;
+    rust)       lang_badge="![Rust](https://img.shields.io/badge/rust-stable-blue.svg)" ;;
+  esac
+  badges="![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)"
+  if [[ -n "$lang_badge" ]]; then
+    badges="$badges $lang_badge"
+  fi
+  if [[ -n "$GIT_REMOTE" ]]; then
+    # Extract owner/repo from remote URL for CI badge
+    local repo_slug
+    repo_slug="$(echo "$GIT_REMOTE" | sed -E 's|.*[:/]([^/]+/[^/]+?)(\.git)?$|\1|')"
+    badges="![CI](https://github.com/${repo_slug}/actions/workflows/ci.yml/badge.svg) $badges"
+  fi
+
   cat > "$SCRIPT_DIR/README.md" <<README
 # ${PROJECT_NAME}
+
+${badges}
 
 ${PROJECT_DESC}
 
@@ -1475,7 +1518,7 @@ make test
 This project is configured for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with:
 
 - Agent constitution (\`CLAUDE.md\`)
-- 13 slash commands: \`/start\`, \`/plan\`, \`/review\`, \`/test\`, \`/backlog\`, \`/doctor\`, \`/lesson\`, \`/checkpoint\`, \`/status\`, \`/simplify\`, \`/index\`, \`/save\`, \`/load\`
+- 14 slash commands: \`/start\`, \`/plan\`, \`/review\`, \`/test\`, \`/refactor\`, \`/backlog\`, \`/doctor\`, \`/lesson\`, \`/checkpoint\`, \`/status\`, \`/simplify\`, \`/index\`, \`/save\`, \`/load\`
 - 8 agent specifications in \`agents/\`
 - Task management in \`tasks/\`
 
@@ -1702,6 +1745,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 CHLOG
   success "CHANGELOG.md generated"
 
+  # --- Generate SECURITY.md ---
+  info "Generating SECURITY.md..."
+  cat > "$SCRIPT_DIR/SECURITY.md" <<'SECEOF'
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported |
+|---------|-----------|
+| latest  | Yes       |
+
+## Reporting a Vulnerability
+
+If you discover a security vulnerability, please report it responsibly:
+
+1. **Do not** open a public GitHub issue
+2. Email the maintainers or use [GitHub's private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)
+3. Include a description of the vulnerability, steps to reproduce, and potential impact
+4. Allow up to 72 hours for an initial response
+
+## Scope
+
+This policy applies to the latest version of this project. We take all security reports seriously and will investigate promptly.
+
+## Disclosure
+
+We follow coordinated disclosure. We will work with you to understand and address the issue before any public disclosure.
+SECEOF
+  success "SECURITY.md generated"
+
   # --- Generate pre-commit config ---
   info "Generating pre-commit config..."
   local precommit_hooks=""
@@ -1889,6 +1962,114 @@ services:
 #   db_data:
 DCEOF
     success "Docker files generated (Dockerfile, docker-compose.yml)"
+  fi
+
+  # --- Generate VS Code settings ---
+  if [[ "$ENABLE_VSCODE" == true ]]; then
+    info "Generating VS Code settings..."
+    mkdir -p "$SCRIPT_DIR/.vscode"
+
+    # settings.json — per language
+    local vscode_settings=""
+    case "$LANGUAGE" in
+      python)
+        vscode_settings='{
+  "editor.formatOnSave": true,
+  "editor.rulers": [88],
+  "editor.tabSize": 4,
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    }
+  },
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": ["tests"]
+}' ;;
+      typescript)
+        vscode_settings='{
+  "editor.formatOnSave": true,
+  "editor.rulers": [100],
+  "editor.tabSize": 2,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "typescript.preferences.importModuleSpecifier": "relative"
+}' ;;
+      go)
+        vscode_settings='{
+  "editor.formatOnSave": true,
+  "editor.rulers": [100],
+  "editor.tabSize": 4,
+  "[go]": {
+    "editor.defaultFormatter": "golang.go"
+  },
+  "go.lintTool": "golangci-lint",
+  "go.lintOnSave": "workspace",
+  "go.testFlags": ["-v"]
+}' ;;
+      rust)
+        vscode_settings='{
+  "editor.formatOnSave": true,
+  "editor.rulers": [100],
+  "editor.tabSize": 4,
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  },
+  "rust-analyzer.check.command": "clippy"
+}' ;;
+      *)
+        vscode_settings='{
+  "editor.formatOnSave": true,
+  "editor.rulers": [100],
+  "editor.tabSize": 2
+}' ;;
+    esac
+    echo "$vscode_settings" > "$SCRIPT_DIR/.vscode/settings.json"
+
+    # extensions.json — per language
+    local vscode_extensions=""
+    case "$LANGUAGE" in
+      python)
+        vscode_extensions='{
+  "recommendations": [
+    "charliermarsh.ruff",
+    "ms-python.python",
+    "ms-python.vscode-pylance"
+  ]
+}' ;;
+      typescript)
+        vscode_extensions='{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode"
+  ]
+}' ;;
+      go)
+        vscode_extensions='{
+  "recommendations": [
+    "golang.go"
+  ]
+}' ;;
+      rust)
+        vscode_extensions='{
+  "recommendations": [
+    "rust-lang.rust-analyzer"
+  ]
+}' ;;
+      *)
+        vscode_extensions='{
+  "recommendations": []
+}' ;;
+    esac
+    echo "$vscode_extensions" > "$SCRIPT_DIR/.vscode/extensions.json"
+
+    success "VS Code settings generated (.vscode/)"
   fi
 
   # --- Generate release workflow ---
@@ -2084,7 +2265,7 @@ show_summary() {
   echo "What's configured:"
   echo -e "  ${BOLD}CLAUDE.md${RESET}           Agent constitution + conventions"
   echo -e "  ${BOLD}.claude/settings${RESET}    Tiered permissions"
-  echo -e "  ${BOLD}.claude/skills/${RESET}     13 slash commands (/start, /plan, /backlog, /save, /load, ...)"
+  echo -e "  ${BOLD}.claude/skills/${RESET}     14 slash commands (/start, /plan, /backlog, /save, /load, ...)"
   echo -e "  ${BOLD}.claude/hooks/${RESET}      Main branch protection"
   echo -e "  ${BOLD}.github/${RESET}            Issue templates, PR template, CI workflow"
   echo -e "  ${BOLD}agents/${RESET}             8 agent specifications"
@@ -2143,6 +2324,7 @@ main() {
   step_permissions
   step_ralph
   step_docker
+  step_vscode
   step_planning
   step_git_remote
   step_github_pm

@@ -200,6 +200,7 @@ assert_common_structure() {
   assert_file_exists ".claude/skills/backlog/SKILL.md"
   assert_file_exists ".claude/skills/start/SKILL.md"
   assert_file_exists ".claude/skills/doctor/SKILL.md"
+  assert_file_exists ".claude/skills/refactor/SKILL.md"
   assert_file_exists ".claude/hooks/protect-main-branch.sh"
 
   # GitHub templates and workflows
@@ -214,7 +215,11 @@ assert_common_structure() {
   # Generated project files
   assert_file_exists ".env.example"
   assert_file_exists "CHANGELOG.md"
+  assert_file_exists "SECURITY.md"
   assert_file_exists ".pre-commit-config.yaml"
+
+  # README badges
+  assert_file_contains "README.md" "License-MIT" "README should contain MIT license badge"
 
   # Agents
   assert_dir_exists "agents"
