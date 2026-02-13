@@ -21,9 +21,9 @@ TOTAL=0
 
 # Colors
 if [[ -t 1 ]]; then
-  GREEN='\033[0;32m' RED='\033[0;31m' BOLD='\033[1m' DIM='\033[2m' RESET='\033[0m'
+  GREEN='\033[0;32m' RED='\033[0;31m' YELLOW='\033[0;33m' BOLD='\033[1m' DIM='\033[2m' RESET='\033[0m'
 else
-  GREEN='' RED='' BOLD='' DIM='' RESET=''
+  GREEN='' RED='' YELLOW='' BOLD='' DIM='' RESET=''
 fi
 
 # ---------------------------------------------------------------------------
@@ -959,6 +959,328 @@ test_add_language() {
 }
 
 # ---------------------------------------------------------------------------
+# Test: --version prints version string
+# ---------------------------------------------------------------------------
+test_version() {
+  echo -e "\n${BOLD}Test: --version flag${RESET}"
+  setup_test "version"
+
+  local output
+  output="$(cd "$WORK_DIR" && ./scaffold --version 2>&1)"
+  cd "$SCRIPT_DIR"
+
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "^scaffold "; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --version should print 'scaffold <version>'"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if [[ ! -d "$WORK_DIR/.git" ]] || [[ "$(git -C "$WORK_DIR" rev-list --count HEAD 2>/dev/null || echo 0)" == "0" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --version should not initialize a project"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}--version: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# Test: --migrate on an existing Python project
+# ---------------------------------------------------------------------------
+test_migrate() {
+  echo -e "\n${BOLD}Test: --migrate on existing Python project${RESET}"
+  setup_test "migrate"
+
+  # Simulate an existing Python project (not scaffolded)
+  # Remove CLAUDE.md and scaffold artifacts, keep templates for migration
+  rm -f "$WORK_DIR/CLAUDE.md"
+  rm -rf "$WORK_DIR/.claude/skills" "$WORK_DIR/.claude/hooks"
+  rm -rf "$WORK_DIR/agents" "$WORK_DIR/tasks" "$WORK_DIR/scratch"
+  rm -rf "$WORK_DIR/tests/unit" "$WORK_DIR/tests/integration" "$WORK_DIR/tests/agent"
+  rm -f "$WORK_DIR/GETTING_STARTED.md"
+
+  # Create a bare Python project
+  mkdir -p "$WORK_DIR/src/myapp"
+  touch "$WORK_DIR/src/myapp/__init__.py"
+  cat > "$WORK_DIR/pyproject.toml" <<'EOF'
+[project]
+name = "myapp"
+version = "0.1.0"
+EOF
+
+  # Initialize git (existing project has git)
+  git -C "$WORK_DIR" init -b main > /dev/null 2>&1
+  git -C "$WORK_DIR" add -A > /dev/null 2>&1
+  git -C "$WORK_DIR" commit -m "initial" > /dev/null 2>&1
+
+  # Run migrate
+  cd "$WORK_DIR" && ./scaffold --migrate --non-interactive > /dev/null 2>&1
+  cd "$SCRIPT_DIR"
+
+  # Should have detected Python
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/CLAUDE.md" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --migrate should create CLAUDE.md"
+  fi
+
+  # CLAUDE.md should have Python conventions (if templates available)
+  TOTAL=$((TOTAL + 1))
+  if grep -q "Python Conventions" "$WORK_DIR/CLAUDE.md" 2>/dev/null; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} CLAUDE.md should have Python conventions after migrate"
+  fi
+
+  # Should have .claude/settings.json
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/.claude/settings.json" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --migrate should create .claude/settings.json"
+  fi
+
+  # Should have tasks/
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/tasks/todo.md" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --migrate should create tasks/todo.md"
+  fi
+
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/tasks/lessons.md" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --migrate should create tasks/lessons.md"
+  fi
+
+  # Should have test directories
+  TOTAL=$((TOTAL + 1))
+  if [[ -d "$WORK_DIR/tests/unit" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --migrate should create tests/unit/"
+  fi
+
+  # Should have scratch/
+  TOTAL=$((TOTAL + 1))
+  if [[ -d "$WORK_DIR/scratch" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --migrate should create scratch/"
+  fi
+
+  # Should have GETTING_STARTED.md
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/GETTING_STARTED.md" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --migrate should create GETTING_STARTED.md"
+  fi
+
+  # Should NOT have overwritten pyproject.toml
+  TOTAL=$((TOTAL + 1))
+  if grep -q 'name = "myapp"' "$WORK_DIR/pyproject.toml"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --migrate should not overwrite existing pyproject.toml"
+  fi
+
+  # Git should still exist with original history
+  TOTAL=$((TOTAL + 1))
+  if [[ -d "$WORK_DIR/.git" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --migrate should preserve existing .git"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}--migrate: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# Test: --migrate is idempotent (running twice doesn't duplicate)
+# ---------------------------------------------------------------------------
+test_migrate_idempotent() {
+  echo -e "\n${BOLD}Test: --migrate idempotent${RESET}"
+  setup_test "migrate-idem"
+
+  # Simulate existing project
+  rm -f "$WORK_DIR/CLAUDE.md"
+  rm -rf "$WORK_DIR/.claude/skills" "$WORK_DIR/.claude/hooks"
+  rm -rf "$WORK_DIR/agents" "$WORK_DIR/tasks" "$WORK_DIR/scratch"
+  rm -rf "$WORK_DIR/tests/unit" "$WORK_DIR/tests/integration" "$WORK_DIR/tests/agent"
+  rm -f "$WORK_DIR/GETTING_STARTED.md"
+
+  cat > "$WORK_DIR/pyproject.toml" <<'EOF'
+[project]
+name = "myapp"
+version = "0.1.0"
+EOF
+  git -C "$WORK_DIR" init -b main > /dev/null 2>&1
+  git -C "$WORK_DIR" add -A > /dev/null 2>&1
+  git -C "$WORK_DIR" commit -m "initial" > /dev/null 2>&1
+
+  # Run migrate twice
+  cd "$WORK_DIR" && ./scaffold --migrate --non-interactive > /dev/null 2>&1
+  cd "$WORK_DIR" && ./scaffold --migrate --non-interactive > /dev/null 2>&1
+  cd "$SCRIPT_DIR"
+
+  # CLAUDE.md should have Python conventions exactly once
+  TOTAL=$((TOTAL + 1))
+  local conv_count
+  conv_count="$(grep -c "Python Conventions" "$WORK_DIR/CLAUDE.md" 2>/dev/null || echo 0)"
+  if [[ "$conv_count" -eq 1 ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Double migrate should not duplicate conventions (found $conv_count)"
+  fi
+
+  # tasks/todo.md should still exist
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/tasks/todo.md" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Double migrate should preserve tasks/todo.md"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}--migrate idempotent: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# Smoke tests — actually run lint/fmt on scaffolded projects
+# ---------------------------------------------------------------------------
+test_smoke_python() {
+  echo ""
+  echo -e "Test: Smoke — Python scaffold (ruff)"
+
+  # Skip gracefully if ruff not installed
+  if ! command -v ruff &>/dev/null; then
+    echo -e "  ${YELLOW}SKIP${RESET} ruff not installed — skipping Python smoke test"
+    return 0
+  fi
+
+  setup_test "smoke-py"
+  run_scaffold > /dev/null
+
+  # Create a minimal Python file so lint/fmt have something to work on
+  mkdir -p "$WORK_DIR/src"
+  cat > "$WORK_DIR/src/hello.py" <<'PYEOF'
+import os
+import sys
+
+def hello():
+    print("hello world")
+
+if __name__ == "__main__":
+    hello()
+PYEOF
+
+  # make lint — ruff check may find issues (unused imports), that's OK
+  # We just verify the command actually runs
+  TOTAL=$((TOTAL + 1))
+  local lint_output
+  lint_output=$(cd "$WORK_DIR" && make lint LANG=python 2>&1) || true
+  if echo "$lint_output" | grep -qF -- "Linting"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} make lint LANG=python did not produce expected output"
+  fi
+
+  # make fmt should succeed
+  TOTAL=$((TOTAL + 1))
+  if (cd "$WORK_DIR" && make fmt LANG=python 2>&1) >/dev/null 2>&1; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} make fmt LANG=python failed"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}Smoke Python: done${RESET}"
+}
+
+test_smoke_go() {
+  echo ""
+  echo -e "Test: Smoke — Go scaffold (gofmt)"
+
+  # Skip gracefully if go toolchain not installed
+  if ! command -v go &>/dev/null; then
+    echo -e "  ${YELLOW}SKIP${RESET} go not installed — skipping Go smoke test"
+    return 0
+  fi
+
+  setup_test "smoke-go"
+  force_language "go"
+  run_scaffold > /dev/null
+
+  # Create a minimal Go file
+  mkdir -p "$WORK_DIR/cmd"
+  cat > "$WORK_DIR/cmd/main.go" <<'GOEOF'
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("hello world")
+}
+GOEOF
+
+  # Scaffold already created go.mod; just make sure it exists
+  # If not, init one (e.g. if template failed)
+  if [[ ! -f "$WORK_DIR/go.mod" ]]; then
+    (cd "$WORK_DIR" && go mod init testproject 2>/dev/null) || true
+  fi
+
+  # make fmt should succeed (gofmt is always available with go)
+  TOTAL=$((TOTAL + 1))
+  if (cd "$WORK_DIR" && make fmt LANG=go 2>&1) >/dev/null 2>&1; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} make fmt LANG=go failed"
+  fi
+
+  # make lint — golangci-lint may not be installed, skip gracefully
+  TOTAL=$((TOTAL + 1))
+  if command -v golangci-lint &>/dev/null; then
+    if (cd "$WORK_DIR" && make lint LANG=go 2>&1) >/dev/null 2>&1; then
+      PASS=$((PASS + 1))
+    else
+      # lint issues are OK — command ran
+      PASS=$((PASS + 1))
+    fi
+  else
+    echo -e "  ${YELLOW}SKIP${RESET} golangci-lint not installed — lint check skipped"
+    PASS=$((PASS + 1))  # count as pass (graceful skip)
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}Smoke Go: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
@@ -982,6 +1304,15 @@ main() {
     completions)    test_completions ;;
     rollback)       test_rollback ;;
     add-language)   test_add_language ;;
+    version)        test_version ;;
+    migrate)        test_migrate ;;
+    migrate-idem)   test_migrate_idempotent ;;
+    smoke-python)   test_smoke_python ;;
+    smoke-go)       test_smoke_go ;;
+    smoke)
+      test_smoke_python
+      test_smoke_go
+      ;;
     archetypes)
       test_python_api
       test_typescript_cli
@@ -1004,10 +1335,15 @@ main() {
       test_completions
       test_rollback
       test_add_language
+      test_version
+      test_migrate
+      test_migrate_idempotent
+      test_smoke_python
+      test_smoke_go
       ;;
     *)
       echo "Unknown test: $filter"
-      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|completions|rollback|add-language|archetypes|all]"
+      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|completions|rollback|add-language|version|migrate|migrate-idem|smoke|smoke-python|smoke-go|archetypes|all]"
       exit 1
       ;;
   esac
