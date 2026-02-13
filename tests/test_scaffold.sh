@@ -1771,8 +1771,8 @@ CONV
 GI
 
   # Install it
-  local install_output
-  install_output=$(cd "$WORK_DIR" && SCAFFOLD_HOME="$WORK_DIR/.scaffold-home" ./scaffold --install-template "$tpl_dir" 2>&1)
+  local _install_output
+  _install_output=$(cd "$WORK_DIR" && SCAFFOLD_HOME="$WORK_DIR/.scaffold-home" ./scaffold --install-template "$tpl_dir" 2>&1)
 
   # Template should be installed
   TOTAL=$((TOTAL + 1))
@@ -1829,8 +1829,8 @@ test_install_template_invalid() {
   echo "# Just a readme" > "$tpl_dir/README.md"
 
   # Install should fail
-  local install_output install_exit=0
-  install_output=$(cd "$WORK_DIR" && SCAFFOLD_HOME="$WORK_DIR/.scaffold-home" ./scaffold --install-template "$tpl_dir" 2>&1) || install_exit=$?
+  local _install_output install_exit=0
+  _install_output=$(cd "$WORK_DIR" && SCAFFOLD_HOME="$WORK_DIR/.scaffold-home" ./scaffold --install-template "$tpl_dir" 2>&1) || install_exit=$?
 
   TOTAL=$((TOTAL + 1))
   if [[ $install_exit -ne 0 ]]; then

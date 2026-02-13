@@ -34,7 +34,17 @@ Rule: [preventive instruction — make it clear, negative if possible]
 Added: [YYYY-MM-DD]
 -->
 
-_No entries yet._
+Pattern: Scaffold ran in its own repo, wiping .git history
+Tags: git, testing, scaffold
+Mistake: The scaffold script was executed inside the scaffolding source repo (via a linter or hook), which ran init_git and created a new .git with a single commit, destroying the real remote-tracking history. All branches and remote config were lost.
+Rule: Never run `./scaffold` in the scaffolding source repo itself. If the .git directory has no remote and only 1 commit, suspect this happened. Recovery: re-clone from GitHub, copy .git back, remove scaffolded artifacts (pyproject.toml, src/, .scaffold-version, etc.).
+Added: 2026-02-13
+
+Pattern: `|| true` swallows exit code in variable assignment
+Tags: bash, testing
+Mistake: Used `output=$(command) || true; local exit=$?` — the `|| true` makes `$?` always 0. The exit code of the failed command is lost.
+Rule: Use `local exit=0; output=$(command) || exit=$?` pattern to capture both output and exit code.
+Added: 2026-02-13
 
 ---
 

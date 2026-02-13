@@ -1,42 +1,47 @@
-# Task Plan — P3 Features: Interactive --add, --verify, Plugin Registry
+# Task Plan — Full Codebase Review and Cleanup (#37)
 
 > Updated: 2026-02-13
-> Branch: `feat/p3-round1`
-> Status: Complete — ready for PR
-> Issues: #28, #29, #30
+> Branch: `refactor/v1-review`
+> Status: In Progress
+> Issue: #37
 
 ## Objective
 
-Implement three P3-low features: interactive language selection for `--add`, post-scaffold verification, and community template installation.
+Clean up the scaffold codebase before v1.0.0 release. No functional changes — cleanup only.
 
 ## Plan
 
-### Phase 1: Interactive `--add` (#29)
-- [x] 1. Modify `parse_flags()` — `--add` without an argument sets `ADD_MODE=true` but leaves `ADD_LANGUAGE=""`
-- [x] 2. In `main()`, when `ADD_MODE=true` and `ADD_LANGUAGE=""`, call `prompt_choice` with available languages
-- [x] 3. Non-interactive fallback: default to first language (python)
-- [x] 4. Add test: `--add` without arg in non-interactive mode scaffolds python
-- [x] 5. Add test: `--add python` still works unchanged
+### Phase 1: shellcheck fixes
+- [x] 1. Fix SC2146: `find` grouping with `\( \)` in update function (line 276)
+- [x] 2. Fix SC2034: remove unused `ci_lang_name` variable (line 2009)
+- [x] 3. Fix SC2129: consolidate consecutive redirects to same file (4 occurrences)
+- [x] 4. Fix SC2034 in test: prefix unused `install_output` with `_`
 
-### Phase 2: `--verify` flag (#30)
-- [x] 6. Add `--verify` flag to `parse_flags()`, add `VERIFY_MODE=false` global
-- [x] 7. Create `run_verify()` — runs checks, prints pass/fail per check, returns exit code
-- [x] 8. Checks: git repo, required files, .scaffold-version, valid JSON, no placeholders
-- [x] 9. Add test: `--verify` on a freshly scaffolded project → exit 0, all checks pass
-- [x] 10. Add test: `--verify` detects leftover placeholder → exit 1, reports failure
+### Phase 2: Dead code removal
+- [x] 5. Wire `list_available_languages()` into interactive `--add` prompt (it's defined but not called — the prompt currently hardcodes `python typescript go rust`)
 
-### Phase 3: Plugin/template registry (#28)
-- [x] 11. Add `--install-template <url-or-path>` flag to `parse_flags()`
-- [x] 12. Create `install_template()` — copy/clone to `~/.scaffold/templates/<name>/`
-- [x] 13. Template validation: must contain `CONVENTIONS.md` and `gitignore.append`
-- [x] 14. Add `--list-templates` flag — lists built-in + installed templates
-- [x] 15. Create `list_available_languages()` helper — scans built-in + installed template dirs
-- [x] 16. Wire `list_available_languages()` into `--add` validation (accepts installed templates)
-- [x] 17. Add test: `--install-template` from local path installs and `--list-templates` shows it
-- [x] 18. Add test: invalid template (missing CONVENTIONS.md) fails validation
+### Phase 3: Refactor `apply_templates()` (752 lines → ~5 focused functions)
+- [x] 6. Extract `apply_language_config()` — handles .tmpl processing, config copying, gitignore append
+- [x] 7. Extract `apply_common_files()` — README, GETTING_STARTED, CI, .env, CHANGELOG, SECURITY, pre-commit, release workflow
+- [x] 8. Extract `apply_optional_features()` — Docker, VS Code, Ralph
+- [x] 9. Slim `apply_templates()` to an orchestrator calling the above
 
-### Phase 4: Polish
-- [x] 19. Update README (new flags, template authoring docs)
-- [x] 20. Update tasks/tests.md
-- [x] 21. Run full test suite — 721/721 across 32 suites
-- [ ] 22. Commit, push, PR
+### Phase 4: Extract helpers for duplicate code
+- [x] 10. Extract `replace_placeholders()` helper — wraps the repeated `sed` pattern for {{PROJECT_NAME}}/{{PROJECT_DESCRIPTION}}
+
+### Phase 5: Minor fixes
+- [x] 11. Fix `show_help()` duplicate numbering (5, 5 → 5, 6)
+
+### Phase 6: Verify
+- [x] 12. Run shellcheck — zero warnings
+- [x] 13. Run full test suite — 732/732
+- [ ] 14. Commit, push, PR
+
+## Results
+
+- shellcheck: 0 warnings on scaffold + test_scaffold.sh
+- Tests: 732/732 (33 suites, 0 failures)
+- `apply_templates()` reduced from 742 lines to 12-line orchestrator
+- 3 new focused functions: `apply_language_config()`, `apply_common_files()`, `apply_optional_features()`
+- `replace_placeholders()` helper eliminates duplicate `sed_escape` + `sed -i` pattern
+- `show_help()` numbering fixed (5,5,6,7 → 5,6,7,8)

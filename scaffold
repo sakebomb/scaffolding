@@ -160,6 +160,15 @@ sed_escape() {
   printf '%s' "$1" | sed -e 's/[\/&\\]/\\&/g'
 }
 
+# Replace {{PROJECT_NAME}} and {{PROJECT_DESCRIPTION}} placeholders in a file (in-place)
+replace_placeholders() {
+  local file="$1"
+  local escaped_name escaped_desc
+  escaped_name="$(sed_escape "$PROJECT_NAME")"
+  escaped_desc="$(sed_escape "$PROJECT_DESC")"
+  sed -i "s/{{PROJECT_NAME}}/${escaped_name}/g; s/{{PROJECT_DESCRIPTION}}/${escaped_desc}/g" "$file"
+}
+
 prompt() {
   local var_name="$1" prompt_text="$2" default="$3"
   if [[ "$NON_INTERACTIVE" == true ]]; then
@@ -273,7 +282,7 @@ run_update() {
     while IFS= read -r -d '' file; do
       local rel_path="${file#"$SCRIPT_DIR"/}"
       update_files+=("$rel_path")
-    done < <(find "$SCRIPT_DIR/$dir" -type f -name "*.md" -o -name "*.sh" -o -name "*.json" -print0 2>/dev/null | sort -z)
+    done < <(find "$SCRIPT_DIR/$dir" -type f \( -name "*.md" -o -name "*.sh" -o -name "*.json" \) -print0 2>/dev/null | sort -z)
   done
 
   # Check each file for changes
@@ -603,9 +612,9 @@ What it does:
   3. Sets up language-specific tooling (linter, formatter, test runner)
   4. Generates archetype structure (CLI, API, or library starter files)
   5. Optionally integrates Ralph Wiggum autonomous loop
-  5. Helps you create or load a project plan
-  6. Initializes git with a clean first commit
-  7. Removes scaffold artifacts (unless --keep is used)
+  6. Helps you create or load a project plan
+  7. Initializes git with a clean first commit
+  8. Removes scaffold artifacts (unless --keep is used)
 
 After running, your project is ready for Claude Code from session one.
 
@@ -1683,34 +1692,28 @@ RSEOF
 }
 
 # ---------------------------------------------------------------------------
-# Apply: Template engine
+# Apply: Language-specific configuration
 # ---------------------------------------------------------------------------
-apply_templates() {
-  header "Applying Configuration"
-
+apply_language_config() {
   # --- Append language conventions to CLAUDE.md (before placeholder replacement) ---
   if [[ "$LANGUAGE" != "none" && -f "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" ]]; then
     info "Appending $LANGUAGE conventions to CLAUDE.md..."
-    echo "" >> "$SCRIPT_DIR/CLAUDE.md"
-    echo "---" >> "$SCRIPT_DIR/CLAUDE.md"
-    echo "" >> "$SCRIPT_DIR/CLAUDE.md"
-    cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
+    { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md"; } >> "$SCRIPT_DIR/CLAUDE.md"
     success "CLAUDE.md updated with $LANGUAGE conventions"
   fi
 
   # --- Replace placeholders in CLAUDE.md (after conventions are appended) ---
   info "Customizing CLAUDE.md..."
-  local escaped_name escaped_desc
-  escaped_name="$(sed_escape "$PROJECT_NAME")"
-  escaped_desc="$(sed_escape "$PROJECT_DESC")"
-  sed -i "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/CLAUDE.md"
-  sed -i "s/{{PROJECT_DESCRIPTION}}/${escaped_desc}/g" "$SCRIPT_DIR/CLAUDE.md"
+  replace_placeholders "$SCRIPT_DIR/CLAUDE.md"
 
   # --- Place language-specific config files ---
   if [[ "$LANGUAGE" != "none" ]]; then
     info "Installing $LANGUAGE config files..."
 
     local tmpl_dir="$TEMPLATE_DIR/$LANGUAGE"
+    local escaped_name escaped_desc
+    escaped_name="$(sed_escape "$PROJECT_NAME")"
+    escaped_desc="$(sed_escape "$PROJECT_DESC")"
 
     # Process .tmpl files (replace placeholders, remove .tmpl extension)
     for tmpl in "$tmpl_dir"/*.tmpl; do
@@ -1745,22 +1748,12 @@ apply_templates() {
     # Create src directory + archetype files
     apply_archetype "$escaped_name"
   fi
+}
 
-  # --- Configure permissions ---
-  info "Configuring Claude Code permissions..."
-  apply_permissions
-
-  # --- Ralph Wiggum ---
-  if [[ "$ENABLE_RALPH" == true ]]; then
-    info "Setting up Ralph Wiggum..."
-    mkdir -p "$SCRIPT_DIR/scripts"
-    cp "$TEMPLATE_DIR/ralph/ralph-loop.sh" "$SCRIPT_DIR/scripts/ralph-loop.sh"
-    chmod +x "$SCRIPT_DIR/scripts/ralph-loop.sh"
-    cp "$TEMPLATE_DIR/ralph/PROMPT_build.md" "$SCRIPT_DIR/PROMPT_build.md"
-    cp "$TEMPLATE_DIR/ralph/PROMPT_plan.md" "$SCRIPT_DIR/PROMPT_plan.md"
-    success "Ralph Wiggum installed (scripts/ralph-loop.sh)"
-  fi
-
+# ---------------------------------------------------------------------------
+# Apply: Common project files
+# ---------------------------------------------------------------------------
+apply_common_files() {
   # --- Generate project README (replaces scaffold README) ---
   info "Generating project README..."
   local getting_started=""
@@ -1965,10 +1958,8 @@ GUIDE
   mkdir -p "$SCRIPT_DIR/.github/workflows"
 
   local ci_setup=""
-  local ci_lang_name=""
   case "$LANGUAGE" in
     python)
-      ci_lang_name="Python"
       ci_setup="
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -1981,7 +1972,6 @@ GUIDE
           source .venv/bin/activate
           pip install -e '.[dev]'" ;;
     typescript)
-      ci_lang_name="TypeScript"
       ci_setup="
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -1992,21 +1982,18 @@ GUIDE
       - name: Install dependencies
         run: npm ci" ;;
     go)
-      ci_lang_name="Go"
       ci_setup="
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'" ;;
     rust)
-      ci_lang_name="Rust"
       ci_setup="
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt" ;;
     *)
-      ci_lang_name="Generic"
       ci_setup="" ;;
   esac
 
@@ -2157,6 +2144,70 @@ ${precommit_hooks}
         args: ['--baseline', '.secrets.baseline']
 PCEOF
   success "Pre-commit config generated (.pre-commit-config.yaml)"
+
+  # --- Generate release workflow ---
+  info "Generating release workflow..."
+  cat > "$SCRIPT_DIR/.github/workflows/release.yml" <<'RLEOF'
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Extract section for this version from CHANGELOG.md
+          NOTES=$(awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
+          if [ -z "$NOTES" ]; then
+            NOTES="Release ${GITHUB_REF_NAME}"
+          fi
+          {
+            echo 'notes<<EOF'
+            echo "$NOTES"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          RELEASE_NOTES: ${{ steps.changelog.outputs.notes }}
+        run: |
+          gh release create "$TAG_NAME" \
+            --title "$TAG_NAME" \
+            --notes "$RELEASE_NOTES"
+RLEOF
+  success "Release workflow generated (.github/workflows/release.yml)"
+}
+
+# ---------------------------------------------------------------------------
+# Apply: Optional features (Ralph, Docker, VS Code)
+# ---------------------------------------------------------------------------
+apply_optional_features() {
+  # --- Ralph Wiggum ---
+  if [[ "$ENABLE_RALPH" == true ]]; then
+    info "Setting up Ralph Wiggum..."
+    mkdir -p "$SCRIPT_DIR/scripts"
+    cp "$TEMPLATE_DIR/ralph/ralph-loop.sh" "$SCRIPT_DIR/scripts/ralph-loop.sh"
+    chmod +x "$SCRIPT_DIR/scripts/ralph-loop.sh"
+    cp "$TEMPLATE_DIR/ralph/PROMPT_build.md" "$SCRIPT_DIR/PROMPT_build.md"
+    cp "$TEMPLATE_DIR/ralph/PROMPT_plan.md" "$SCRIPT_DIR/PROMPT_plan.md"
+    success "Ralph Wiggum installed (scripts/ralph-loop.sh)"
+  fi
 
   # --- Generate Docker files (if enabled) ---
   if [[ "$ENABLE_DOCKER" == true ]]; then
@@ -2388,54 +2439,22 @@ DCEOF
 
     success "VS Code settings generated (.vscode/)"
   fi
+}
 
-  # --- Generate release workflow ---
-  info "Generating release workflow..."
-  cat > "$SCRIPT_DIR/.github/workflows/release.yml" <<'RLEOF'
-name: Release
+# ---------------------------------------------------------------------------
+# Apply: Template engine
+# ---------------------------------------------------------------------------
+apply_templates() {
+  header "Applying Configuration"
 
-on:
-  push:
-    tags:
-      - 'v*'
+  apply_language_config
 
-permissions:
-  contents: write
+  # --- Configure permissions ---
+  info "Configuring Claude Code permissions..."
+  apply_permissions
 
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Extract changelog for this version
-        id: changelog
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          # Extract section for this version from CHANGELOG.md
-          NOTES=$(awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
-          if [ -z "$NOTES" ]; then
-            NOTES="Release ${GITHUB_REF_NAME}"
-          fi
-          {
-            echo 'notes<<EOF'
-            echo "$NOTES"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
-          RELEASE_NOTES: ${{ steps.changelog.outputs.notes }}
-        run: |
-          gh release create "$TAG_NAME" \
-            --title "$TAG_NAME" \
-            --notes "$RELEASE_NOTES"
-RLEOF
-  success "Release workflow generated (.github/workflows/release.yml)"
+  apply_common_files
+  apply_optional_features
 }
 
 apply_permissions() {
@@ -2679,10 +2698,6 @@ run_migrate() {
     success "Detected language: $LANGUAGE"
   fi
 
-  local escaped_name escaped_desc
-  escaped_name="$(sed_escape "$PROJECT_NAME")"
-  escaped_desc="$(sed_escape "$PROJECT_DESC")"
-
   # --- CLAUDE.md ---
   if [[ -f "$SCRIPT_DIR/CLAUDE.md" ]]; then
     info "CLAUDE.md already exists — skipping"
@@ -2698,10 +2713,7 @@ run_migrate() {
       if [[ -n "$convention_header" ]] && ! grep -q "$convention_header" "$SCRIPT_DIR/CLAUDE.md" 2>/dev/null; then
         if [[ -f "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" ]]; then
           info "Appending $LANGUAGE conventions to CLAUDE.md..."
-          echo "" >> "$SCRIPT_DIR/CLAUDE.md"
-          echo "---" >> "$SCRIPT_DIR/CLAUDE.md"
-          echo "" >> "$SCRIPT_DIR/CLAUDE.md"
-          cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
+          { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md"; } >> "$SCRIPT_DIR/CLAUDE.md"
           success "  CLAUDE.md updated with $LANGUAGE conventions"
         fi
       fi
@@ -2714,14 +2726,10 @@ run_migrate() {
     fi
     # Apply language conventions
     if [[ "$LANGUAGE" != "none" && -f "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" ]]; then
-      echo "" >> "$SCRIPT_DIR/CLAUDE.md"
-      echo "---" >> "$SCRIPT_DIR/CLAUDE.md"
-      echo "" >> "$SCRIPT_DIR/CLAUDE.md"
-      cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
+      { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md"; } >> "$SCRIPT_DIR/CLAUDE.md"
     fi
     # Replace placeholders
-    sed -i "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/CLAUDE.md"
-    sed -i "s/{{PROJECT_DESCRIPTION}}/${escaped_desc}/g" "$SCRIPT_DIR/CLAUDE.md"
+    replace_placeholders "$SCRIPT_DIR/CLAUDE.md"
     success "  CLAUDE.md created"
   fi
 
@@ -2949,10 +2957,7 @@ run_add_language() {
     info "$convention_header already in CLAUDE.md — skipping"
   elif [[ -f "$TEMPLATE_DIR/$lang/CONVENTIONS.md" ]]; then
     info "Appending $lang conventions to CLAUDE.md..."
-    echo "" >> "$SCRIPT_DIR/CLAUDE.md"
-    echo "---" >> "$SCRIPT_DIR/CLAUDE.md"
-    echo "" >> "$SCRIPT_DIR/CLAUDE.md"
-    cat "$TEMPLATE_DIR/$lang/CONVENTIONS.md" >> "$SCRIPT_DIR/CLAUDE.md"
+    { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$lang/CONVENTIONS.md"; } >> "$SCRIPT_DIR/CLAUDE.md"
     success "CLAUDE.md updated with $lang conventions"
   fi
 
@@ -3244,16 +3249,10 @@ run_verify() {
 list_available_languages() {
   local langs=()
 
-  # Built-in languages
-  for dir in "$TEMPLATE_DIR"/*/; do
-    [[ -d "$dir" ]] || continue
-    local name
-    name="$(basename "$dir")"
-    # Skip non-language template dirs (e.g., ralph)
-    case "$name" in
-      ralph) continue ;;
-    esac
-    [[ -f "$dir/CONVENTIONS.md" ]] && langs+=("$name")
+  # Built-in languages (stable order — python first as default)
+  local builtin_order=(python typescript go rust)
+  for name in "${builtin_order[@]}"; do
+    [[ -f "$TEMPLATE_DIR/$name/CONVENTIONS.md" ]] && langs+=("$name")
   done
 
   # Installed community templates
@@ -3403,7 +3402,9 @@ main() {
   # --add mode: layer a second language and exit
   if [[ "$ADD_MODE" == true ]]; then
     if [[ -z "$ADD_LANGUAGE" ]]; then
-      prompt_choice ADD_LANGUAGE "Select language to add:" python typescript go rust
+      local available_langs
+      mapfile -t available_langs < <(list_available_languages)
+      prompt_choice ADD_LANGUAGE "Select language to add:" "${available_langs[@]}"
     fi
     run_add_language
     exit 0
