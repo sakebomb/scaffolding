@@ -21,17 +21,29 @@ The goal: zero warm-up time. Your first Claude Code session starts productive.
 
 ## Quick Start
 
+### Option A: GitHub Template (Recommended)
+
+1. Click **"Use this template"** at the top of this repo
+2. Name your new repository and create it
+3. Clone your new repo and run the init script:
+
 ```bash
-# Clone the template
-git clone https://github.com/sakebomb/scaffolding.git my-project
+git clone https://github.com/you/my-project.git
 cd my-project
-
-# Run the init script
 ./scaffold
-
-# Start working
 claude
 ```
+
+### Option B: Git Clone
+
+```bash
+git clone https://github.com/sakebomb/scaffolding.git my-project
+cd my-project
+./scaffold
+claude
+```
+
+The scaffold script detects the cloned scaffolding history and reinitializes git automatically.
 
 ## What the Init Flow Looks Like
 

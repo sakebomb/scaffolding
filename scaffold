@@ -714,21 +714,19 @@ cleanup_artifacts() {
 init_git() {
   header "Git Initialization"
 
-  # Check if already a git repo
+  # If cloned from scaffolding repo, remove the cloned .git to start fresh
+  if [[ -d "$SCRIPT_DIR/.git" ]]; then
+    local remote_url
+    remote_url="$(git -C "$SCRIPT_DIR" remote get-url origin 2>/dev/null || echo "")"
+    if [[ "$remote_url" == *"sakebomb/scaffolding"* ]]; then
+      info "Removing cloned scaffolding git history..."
+      rm -rf "$SCRIPT_DIR/.git"
+    fi
+  fi
+
+  # Initialize or verify git repo
   if [[ -d "$SCRIPT_DIR/.git" ]]; then
     info "Git repo already exists."
-
-    # Check if we're on main/master and create a feature branch
-    local current_branch
-    current_branch="$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "none")"
-    if [[ "$current_branch" == "main" || "$current_branch" == "master" || "$current_branch" == "none" ]]; then
-      # If there are no commits yet, rename the branch to main
-      local has_commits
-      has_commits="$(git -C "$SCRIPT_DIR" rev-list --count HEAD 2>/dev/null || echo "0")"
-      if [[ "$has_commits" == "0" ]]; then
-        git -C "$SCRIPT_DIR" checkout -b main 2>/dev/null || true
-      fi
-    fi
   else
     info "Initializing git repository..."
     git -C "$SCRIPT_DIR" init -b main
