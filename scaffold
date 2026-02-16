@@ -27,6 +27,7 @@ set -eEuo pipefail
 # Globals
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$PWD"
 
 # Template resolution: local repo → installed location
 if [[ -d "$SCRIPT_DIR/templates" ]]; then
@@ -90,7 +91,7 @@ header()  { echo -e "\n${BOLD}═══ $* ═══${RESET}\n"; }
 # Snapshot all files that exist before scaffold modifies anything
 snapshot_pre_existing() {
   PRE_SNAPSHOT="$(mktemp)"
-  find "$SCRIPT_DIR" -not -path "$SCRIPT_DIR/.git/*" -not -name '.git' | sort > "$PRE_SNAPSHOT"
+  find "$PROJECT_DIR" -not -path "$PROJECT_DIR/.git/*" -not -name '.git' | sort > "$PRE_SNAPSHOT"
 }
 
 # Rollback handler — called on ERR if trap is set
@@ -103,7 +104,7 @@ rollback_on_failure() {
   # Find files created since snapshot
   local post_snapshot
   post_snapshot="$(mktemp)"
-  find "$SCRIPT_DIR" -not -path "$SCRIPT_DIR/.git/*" -not -name '.git' | sort > "$post_snapshot"
+  find "$PROJECT_DIR" -not -path "$PROJECT_DIR/.git/*" -not -name '.git' | sort > "$post_snapshot"
   local new_files
   new_files="$(comm -13 "$PRE_SNAPSHOT" "$post_snapshot" || true)"
   rm -f "$post_snapshot"
@@ -116,7 +117,7 @@ rollback_on_failure() {
 
   warn "The following files were created before the failure:"
   echo "$new_files" | while IFS= read -r f; do
-    echo "  ${f#"$SCRIPT_DIR"/}"
+    echo "  ${f#"$PROJECT_DIR"/}"
   done
   echo ""
 
@@ -266,10 +267,10 @@ run_update() {
   header "Scaffold Update"
 
   # Show project's scaffold version if available
-  if [[ -f "$SCRIPT_DIR/.scaffold-version" ]]; then
+  if [[ -f "$PROJECT_DIR/.scaffold-version" ]]; then
     local proj_ver proj_date
-    proj_ver="$(grep '^version=' "$SCRIPT_DIR/.scaffold-version" 2>/dev/null | cut -d= -f2)"
-    proj_date="$(grep '^date=' "$SCRIPT_DIR/.scaffold-version" 2>/dev/null | cut -d= -f2)"
+    proj_ver="$(grep '^version=' "$PROJECT_DIR/.scaffold-version" 2>/dev/null | cut -d= -f2)"
+    proj_date="$(grep '^date=' "$PROJECT_DIR/.scaffold-version" 2>/dev/null | cut -d= -f2)"
     info "Project scaffolded with: v${proj_ver:-unknown} (${proj_date:-unknown})"
     info "Current scaffold:        v$SCAFFOLD_VERSION"
   fi
@@ -289,14 +290,14 @@ run_update() {
 
   # Discover files to update
   for dir in "${update_dirs[@]}"; do
-    if [[ ! -d "$SCRIPT_DIR/$dir" ]]; then
+    if [[ ! -d "$PROJECT_DIR/$dir" ]]; then
       info "Skipping $dir (directory not found)"
       continue
     fi
     while IFS= read -r -d '' file; do
-      local rel_path="${file#"$SCRIPT_DIR"/}"
+      local rel_path="${file#"$PROJECT_DIR"/}"
       update_files+=("$rel_path")
-    done < <(find "$SCRIPT_DIR/$dir" -type f \( -name "*.md" -o -name "*.sh" -o -name "*.json" \) -print0 2>/dev/null | sort -z)
+    done < <(find "$PROJECT_DIR/$dir" -type f \( -name "*.md" -o -name "*.sh" -o -name "*.json" \) -print0 2>/dev/null | sort -z)
   done
 
   # Check each file for changes
@@ -310,8 +311,8 @@ run_update() {
     mkdir -p "$(dirname "$tmp_file")"
 
     if curl -sf "$url" -o "$tmp_file" 2>/dev/null; then
-      if [[ -f "$SCRIPT_DIR/$rel_path" ]]; then
-        if ! diff -q "$SCRIPT_DIR/$rel_path" "$tmp_file" &>/dev/null; then
+      if [[ -f "$PROJECT_DIR/$rel_path" ]]; then
+        if ! diff -q "$PROJECT_DIR/$rel_path" "$tmp_file" &>/dev/null; then
           changed=$((changed + 1))
           echo -e "  ${YELLOW}Changed:${RESET} $rel_path"
         fi
@@ -334,10 +335,10 @@ run_update() {
   # Show diffs
   for rel_path in "${update_files[@]}"; do
     local tmp_file="$tmp_dir/$rel_path"
-    if [[ -f "$tmp_file" && -f "$SCRIPT_DIR/$rel_path" ]]; then
-      if ! diff -q "$SCRIPT_DIR/$rel_path" "$tmp_file" &>/dev/null; then
+    if [[ -f "$tmp_file" && -f "$PROJECT_DIR/$rel_path" ]]; then
+      if ! diff -q "$PROJECT_DIR/$rel_path" "$tmp_file" &>/dev/null; then
         echo -e "\n${BOLD}--- $rel_path ---${RESET}"
-        diff --color=auto -u "$SCRIPT_DIR/$rel_path" "$tmp_file" || true
+        diff --color=auto -u "$PROJECT_DIR/$rel_path" "$tmp_file" || true
       fi
     fi
   done
@@ -354,9 +355,9 @@ run_update() {
   for rel_path in "${update_files[@]}"; do
     local tmp_file="$tmp_dir/$rel_path"
     if [[ -f "$tmp_file" ]]; then
-      if [[ ! -f "$SCRIPT_DIR/$rel_path" ]] || ! diff -q "$SCRIPT_DIR/$rel_path" "$tmp_file" &>/dev/null; then
-        mkdir -p "$(dirname "$SCRIPT_DIR/$rel_path")"
-        cp "$tmp_file" "$SCRIPT_DIR/$rel_path"
+      if [[ ! -f "$PROJECT_DIR/$rel_path" ]] || ! diff -q "$PROJECT_DIR/$rel_path" "$tmp_file" &>/dev/null; then
+        mkdir -p "$(dirname "$PROJECT_DIR/$rel_path")"
+        cp "$tmp_file" "$PROJECT_DIR/$rel_path"
       fi
     fi
   done
@@ -779,7 +780,7 @@ step_project_basics() {
   header "Project Setup"
 
   local dir_name
-  dir_name="$(basename "$SCRIPT_DIR")"
+  dir_name="$(basename "$PROJECT_DIR")"
 
   prompt PROJECT_NAME "Project name" "$dir_name"
   prompt PROJECT_DESC "Short description" "A project built with Claude Code"
@@ -942,6 +943,15 @@ step_planning() {
   info "A structured plan helps Claude Code understand your project from session one."
   echo ""
 
+  # In dry-run mode, skip file writes — just collect info for the report
+  if [[ "$DRY_RUN" == true ]]; then
+    info "Using blank template. Run '/plan' in Claude Code to create one later."
+    return
+  fi
+
+  # Ensure tasks/ directory exists before any plan writes
+  mkdir -p "$PROJECT_DIR/tasks"
+
   prompt_choice PLAN_CHOICE "How would you like to set up your project plan?" \
     "Build one now   — answer a few questions to generate a plan" \
     "Load from file  — import an existing plan (markdown)" \
@@ -960,7 +970,7 @@ step_planning() {
       info "Using blank template. Run '/plan' in Claude Code to create one later."
       local today
       today=$(date +%Y-%m-%d)
-      cat > "$SCRIPT_DIR/tasks/todo.md" <<PLAN
+      cat > "$PROJECT_DIR/tasks/todo.md" <<PLAN
 # Task Plan — ${PROJECT_NAME}
 
 > Created: ${today}
@@ -1000,7 +1010,7 @@ build_plan_interactive() {
   prompt risks "Any known risks or unknowns?" "None identified yet"
 
   # Generate structured plan
-  local plan_file="$SCRIPT_DIR/tasks/todo.md"
+  local plan_file="$PROJECT_DIR/tasks/todo.md"
   local today
   today=$(date +%Y-%m-%d)
 
@@ -1074,7 +1084,7 @@ load_plan_from_file() {
     return
   fi
 
-  cp "$plan_path" "$SCRIPT_DIR/tasks/todo.md"
+  cp "$plan_path" "$PROJECT_DIR/tasks/todo.md"
   success "Plan loaded from $plan_path"
 }
 
@@ -1194,7 +1204,7 @@ apply_github_pm() {
   # Push to remote first so labels can be created
   if [[ -n "$GIT_REMOTE" ]]; then
     info "Pushing to remote..."
-    git -C "$SCRIPT_DIR" push -u origin main 2>/dev/null || true
+    git -C "$PROJECT_DIR" push -u origin main 2>/dev/null || true
   fi
 
   if ! command -v gh &>/dev/null || ! gh auth status &>/dev/null 2>&1; then
@@ -1222,19 +1232,19 @@ apply_archetype() {
 
   case "$LANGUAGE" in
     python)
-      mkdir -p "$SCRIPT_DIR/src/$pkg_name"
-      touch "$SCRIPT_DIR/src/$pkg_name/__init__.py"
+      mkdir -p "$PROJECT_DIR/src/$pkg_name"
+      touch "$PROJECT_DIR/src/$pkg_name/__init__.py"
 
       case "$ARCHETYPE" in
         cli)
-          cat > "$SCRIPT_DIR/src/$pkg_name/__main__.py" <<PYEOF
+          cat > "$PROJECT_DIR/src/$pkg_name/__main__.py" <<PYEOF
 """Allow running as: python -m $pkg_name"""
 from ${pkg_name}.cli import main
 
 if __name__ == "__main__":
     main()
 PYEOF
-          cat > "$SCRIPT_DIR/src/$pkg_name/cli.py" <<'PYEOF'
+          cat > "$PROJECT_DIR/src/$pkg_name/cli.py" <<'PYEOF'
 """Command-line interface for {{PROJECT_NAME}}."""
 import argparse
 import sys
@@ -1267,14 +1277,14 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "run":
         print(f"Running with target: {args.target}")
 PYEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/$pkg_name/cli.py"
-          sed_inplace "s/{{PROJECT_DESC}}/${PROJECT_DESC//\//\\/}/g" "$SCRIPT_DIR/src/$pkg_name/cli.py"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/src/$pkg_name/cli.py"
+          sed_inplace "s/{{PROJECT_DESC}}/${PROJECT_DESC//\//\\/}/g" "$PROJECT_DIR/src/$pkg_name/cli.py"
           success "  Created CLI archetype: src/$pkg_name/cli.py, __main__.py"
           ;;
         api)
-          mkdir -p "$SCRIPT_DIR/src/$pkg_name/routes"
-          touch "$SCRIPT_DIR/src/$pkg_name/routes/__init__.py"
-          cat > "$SCRIPT_DIR/src/$pkg_name/app.py" <<'PYEOF'
+          mkdir -p "$PROJECT_DIR/src/$pkg_name/routes"
+          touch "$PROJECT_DIR/src/$pkg_name/routes/__init__.py"
+          cat > "$PROJECT_DIR/src/$pkg_name/app.py" <<'PYEOF'
 """{{PROJECT_NAME}} — API application."""
 from http.server import HTTPServer
 
@@ -1301,7 +1311,7 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 PYEOF
-          cat > "$SCRIPT_DIR/src/$pkg_name/routes/health.py" <<'PYEOF'
+          cat > "$PROJECT_DIR/src/$pkg_name/routes/health.py" <<'PYEOF'
 """Health check endpoint."""
 import json
 from http.server import BaseHTTPRequestHandler
@@ -1322,12 +1332,12 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(body).encode())
 PYEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/$pkg_name/app.py"
-          sed_inplace "s/{{PKG_NAME}}/${pkg_name}/g" "$SCRIPT_DIR/src/$pkg_name/app.py"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/src/$pkg_name/app.py"
+          sed_inplace "s/{{PKG_NAME}}/${pkg_name}/g" "$PROJECT_DIR/src/$pkg_name/app.py"
           success "  Created API archetype: src/$pkg_name/app.py, routes/health.py"
           ;;
         library)
-          cat > "$SCRIPT_DIR/src/$pkg_name/lib.py" <<'PYEOF'
+          cat > "$PROJECT_DIR/src/$pkg_name/lib.py" <<'PYEOF'
 """{{PROJECT_NAME}} — public API."""
 
 
@@ -1335,7 +1345,7 @@ def hello(name: str = "world") -> str:
     """Return a greeting. Replace with your library's public API."""
     return f"Hello, {name}!"
 PYEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/$pkg_name/lib.py"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/src/$pkg_name/lib.py"
           success "  Created library archetype: src/$pkg_name/lib.py"
           ;;
         *)
@@ -1345,11 +1355,11 @@ PYEOF
       ;;
 
     typescript)
-      mkdir -p "$SCRIPT_DIR/src"
+      mkdir -p "$PROJECT_DIR/src"
 
       case "$ARCHETYPE" in
         cli)
-          cat > "$SCRIPT_DIR/src/cli.ts" <<'TSEOF'
+          cat > "$PROJECT_DIR/src/cli.ts" <<'TSEOF'
 /**
  * CLI entry point for {{PROJECT_NAME}}.
  */
@@ -1403,12 +1413,12 @@ function main(): void {
 
 main();
 TSEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/cli.ts"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/src/cli.ts"
           success "  Created CLI archetype: src/cli.ts"
           ;;
         api)
-          mkdir -p "$SCRIPT_DIR/src/routes"
-          cat > "$SCRIPT_DIR/src/app.ts" <<'TSEOF'
+          mkdir -p "$PROJECT_DIR/src/routes"
+          cat > "$PROJECT_DIR/src/app.ts" <<'TSEOF'
 /**
  * {{PROJECT_NAME}} — API application.
  */
@@ -1432,7 +1442,7 @@ server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
 TSEOF
-          cat > "$SCRIPT_DIR/src/routes/health.ts" <<'TSEOF'
+          cat > "$PROJECT_DIR/src/routes/health.ts" <<'TSEOF'
 /**
  * Health check endpoint.
  */
@@ -1443,11 +1453,11 @@ export function healthHandler(_req: IncomingMessage, res: ServerResponse): void 
   res.end(JSON.stringify({ status: "ok" }));
 }
 TSEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/app.ts"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/src/app.ts"
           success "  Created API archetype: src/app.ts, src/routes/health.ts"
           ;;
         library)
-          cat > "$SCRIPT_DIR/src/index.ts" <<'TSEOF'
+          cat > "$PROJECT_DIR/src/index.ts" <<'TSEOF'
 /**
  * {{PROJECT_NAME}} — public API.
  */
@@ -1459,16 +1469,16 @@ export function hello(name: string = "world"): string {
   return `Hello, ${name}!`;
 }
 TSEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/index.ts"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/src/index.ts"
           success "  Created library archetype: src/index.ts"
           ;;
         *)
-          cat > "$SCRIPT_DIR/src/index.ts" <<'TSEOF'
+          cat > "$PROJECT_DIR/src/index.ts" <<'TSEOF'
 export function main(): void {
   console.log("Hello from {{PROJECT_NAME}}");
 }
 TSEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/index.ts"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/src/index.ts"
           success "  Created src/index.ts"
           ;;
       esac
@@ -1477,8 +1487,8 @@ TSEOF
     go)
       case "$ARCHETYPE" in
         cli)
-          mkdir -p "$SCRIPT_DIR/cmd/$PROJECT_NAME"
-          cat > "$SCRIPT_DIR/cmd/$PROJECT_NAME/main.go" <<'GOEOF'
+          mkdir -p "$PROJECT_DIR/cmd/$PROJECT_NAME"
+          cat > "$PROJECT_DIR/cmd/$PROJECT_NAME/main.go" <<'GOEOF'
 package main
 
 import (
@@ -1516,13 +1526,13 @@ func printUsage() {
 	fmt.Println("  run [target]  Run the main task")
 }
 GOEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/cmd/$PROJECT_NAME/main.go"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/cmd/$PROJECT_NAME/main.go"
           success "  Created CLI archetype: cmd/$PROJECT_NAME/main.go"
           ;;
         api)
-          mkdir -p "$SCRIPT_DIR/cmd/$PROJECT_NAME"
-          mkdir -p "$SCRIPT_DIR/internal/routes"
-          cat > "$SCRIPT_DIR/cmd/$PROJECT_NAME/main.go" <<'GOEOF'
+          mkdir -p "$PROJECT_DIR/cmd/$PROJECT_NAME"
+          mkdir -p "$PROJECT_DIR/internal/routes"
+          cat > "$PROJECT_DIR/cmd/$PROJECT_NAME/main.go" <<'GOEOF'
 package main
 
 import (
@@ -1547,7 +1557,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+port, mux))
 }
 GOEOF
-          cat > "$SCRIPT_DIR/internal/routes/health.go" <<'GOEOF'
+          cat > "$PROJECT_DIR/internal/routes/health.go" <<'GOEOF'
 package routes
 
 import (
@@ -1561,11 +1571,11 @@ func HealthHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 GOEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/cmd/$PROJECT_NAME/main.go"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/cmd/$PROJECT_NAME/main.go"
           success "  Created API archetype: cmd/$PROJECT_NAME/main.go, internal/routes/health.go"
           ;;
         library)
-          cat > "$SCRIPT_DIR/${pkg_name}.go" <<'GOEOF'
+          cat > "$PROJECT_DIR/${pkg_name}.go" <<'GOEOF'
 // Package {{PKG_NAME}} provides the public API.
 package {{PKG_NAME}}
 
@@ -1577,12 +1587,12 @@ func Hello(name string) string {
 	return "Hello, " + name + "!"
 }
 GOEOF
-          sed_inplace "s/{{PKG_NAME}}/${pkg_name}/g" "$SCRIPT_DIR/${pkg_name}.go"
+          sed_inplace "s/{{PKG_NAME}}/${pkg_name}/g" "$PROJECT_DIR/${pkg_name}.go"
           success "  Created library archetype: ${pkg_name}.go"
           ;;
         *)
-          mkdir -p "$SCRIPT_DIR/cmd/$PROJECT_NAME"
-          cat > "$SCRIPT_DIR/cmd/$PROJECT_NAME/main.go" <<'GOEOF'
+          mkdir -p "$PROJECT_DIR/cmd/$PROJECT_NAME"
+          cat > "$PROJECT_DIR/cmd/$PROJECT_NAME/main.go" <<'GOEOF'
 package main
 
 import "fmt"
@@ -1591,18 +1601,18 @@ func main() {
 	fmt.Println("Hello from {{PROJECT_NAME}}")
 }
 GOEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/cmd/$PROJECT_NAME/main.go"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/cmd/$PROJECT_NAME/main.go"
           success "  Created cmd/$PROJECT_NAME/main.go"
           ;;
       esac
       ;;
 
     rust)
-      mkdir -p "$SCRIPT_DIR/src"
+      mkdir -p "$PROJECT_DIR/src"
 
       case "$ARCHETYPE" in
         cli)
-          cat > "$SCRIPT_DIR/src/main.rs" <<'RSEOF'
+          cat > "$PROJECT_DIR/src/main.rs" <<'RSEOF'
 //! CLI entry point for {{PROJECT_NAME}}.
 use std::env;
 use std::process;
@@ -1636,11 +1646,11 @@ fn print_usage() {
     println!("  run [target]  Run the main task");
 }
 RSEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/main.rs"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/src/main.rs"
           success "  Created CLI archetype: src/main.rs"
           ;;
         api)
-          cat > "$SCRIPT_DIR/src/main.rs" <<'RSEOF'
+          cat > "$PROJECT_DIR/src/main.rs" <<'RSEOF'
 //! {{PROJECT_NAME}} — API server.
 use std::io::Write;
 use std::net::TcpListener;
@@ -1659,11 +1669,11 @@ fn main() {
     }
 }
 RSEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/main.rs"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/src/main.rs"
           success "  Created API archetype: src/main.rs"
           ;;
         library)
-          cat > "$SCRIPT_DIR/src/lib.rs" <<'RSEOF'
+          cat > "$PROJECT_DIR/src/lib.rs" <<'RSEOF'
 //! {{PROJECT_NAME}} — public API.
 
 /// Return a greeting. Replace with your library's public API.
@@ -1689,17 +1699,17 @@ mod tests {
     }
 }
 RSEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/lib.rs"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/src/lib.rs"
           # Remove default main.rs for library archetype
           success "  Created library archetype: src/lib.rs"
           ;;
         *)
-          cat > "$SCRIPT_DIR/src/main.rs" <<'RSEOF'
+          cat > "$PROJECT_DIR/src/main.rs" <<'RSEOF'
 fn main() {
     println!("Hello from {{PROJECT_NAME}}");
 }
 RSEOF
-          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$SCRIPT_DIR/src/main.rs"
+          sed_inplace "s/{{PROJECT_NAME}}/${escaped_name}/g" "$PROJECT_DIR/src/main.rs"
           success "  Created src/main.rs"
           ;;
       esac
@@ -1714,13 +1724,13 @@ apply_language_config() {
   # --- Append language conventions to CLAUDE.md (before placeholder replacement) ---
   if [[ "$LANGUAGE" != "none" && -f "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" ]]; then
     info "Appending $LANGUAGE conventions to CLAUDE.md..."
-    { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md"; } >> "$SCRIPT_DIR/CLAUDE.md"
+    { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md"; } >> "$PROJECT_DIR/CLAUDE.md"
     success "CLAUDE.md updated with $LANGUAGE conventions"
   fi
 
   # --- Replace placeholders in CLAUDE.md (after conventions are appended) ---
   info "Customizing CLAUDE.md..."
-  replace_placeholders "$SCRIPT_DIR/CLAUDE.md"
+  replace_placeholders "$PROJECT_DIR/CLAUDE.md"
 
   # --- Place language-specific config files ---
   if [[ "$LANGUAGE" != "none" ]]; then
@@ -1737,7 +1747,7 @@ apply_language_config() {
         local dest_name
         dest_name="$(basename "$tmpl" .tmpl)"
         sed "s/{{PROJECT_NAME}}/${escaped_name}/g; s/{{PROJECT_DESCRIPTION}}/${escaped_desc}/g" \
-          "$tmpl" > "$SCRIPT_DIR/$dest_name"
+          "$tmpl" > "$PROJECT_DIR/$dest_name"
         success "  Created $dest_name"
       fi
     done
@@ -1750,14 +1760,14 @@ apply_language_config() {
             "$basename" != "gitignore.append" && \
             "$basename" != *.tmpl && \
             -f "$cfg" ]]; then
-        cp "$cfg" "$SCRIPT_DIR/$basename"
+        cp "$cfg" "$PROJECT_DIR/$basename"
         success "  Created $basename"
       fi
     done
 
     # Append language-specific gitignore entries
     if [[ -f "$tmpl_dir/gitignore.append" ]]; then
-      cat "$tmpl_dir/gitignore.append" >> "$SCRIPT_DIR/.gitignore"
+      cat "$tmpl_dir/gitignore.append" >> "$PROJECT_DIR/.gitignore"
       success "  Updated .gitignore with $LANGUAGE entries"
     fi
 
@@ -1812,7 +1822,7 @@ cargo build" ;;
     badges="![CI](https://github.com/${repo_slug}/actions/workflows/ci.yml/badge.svg) $badges"
   fi
 
-  cat > "$SCRIPT_DIR/README.md" <<README
+  cat > "$PROJECT_DIR/README.md" <<README
 # ${PROJECT_NAME}
 
 ${badges}
@@ -1890,7 +1900,7 @@ cargo build
 Install dependencies for your chosen language, then come back here." ;;
   esac
 
-  cat > "$SCRIPT_DIR/GETTING_STARTED.md" <<GUIDE
+  cat > "$PROJECT_DIR/GETTING_STARTED.md" <<GUIDE
 # Getting Started with ${PROJECT_NAME}
 
 Welcome! This guide walks you through your first 10 minutes with Claude Code.
@@ -1971,7 +1981,7 @@ GUIDE
 
   # --- Generate CI workflow ---
   info "Generating CI workflow..."
-  mkdir -p "$SCRIPT_DIR/.github/workflows"
+  mkdir -p "$PROJECT_DIR/.github/workflows"
 
   local ci_setup=""
   case "$LANGUAGE" in
@@ -2013,7 +2023,7 @@ GUIDE
       ci_setup="" ;;
   esac
 
-  cat > "$SCRIPT_DIR/.github/workflows/ci.yml" <<CIEOF
+  cat > "$PROJECT_DIR/.github/workflows/ci.yml" <<CIEOF
 name: CI
 
 on:
@@ -2037,7 +2047,7 @@ CIEOF
 
   # --- Generate .env.example ---
   info "Generating .env.example..."
-  cat > "$SCRIPT_DIR/.env.example" <<'ENVEOF'
+  cat > "$PROJECT_DIR/.env.example" <<'ENVEOF'
 # Environment variables for this project
 # Copy to .env and fill in values: cp .env.example .env
 # NEVER commit .env — it's in .gitignore
@@ -2050,7 +2060,7 @@ ENVEOF
 
   # --- Generate CHANGELOG.md ---
   info "Generating CHANGELOG.md..."
-  cat > "$SCRIPT_DIR/CHANGELOG.md" <<CHLOG
+  cat > "$PROJECT_DIR/CHANGELOG.md" <<CHLOG
 # Changelog
 
 All notable changes to ${PROJECT_NAME} will be documented in this file.
@@ -2067,7 +2077,7 @@ CHLOG
 
   # --- Generate SECURITY.md ---
   info "Generating SECURITY.md..."
-  cat > "$SCRIPT_DIR/SECURITY.md" <<'SECEOF'
+  cat > "$PROJECT_DIR/SECURITY.md" <<'SECEOF'
 # Security Policy
 
 ## Supported Versions
@@ -2137,7 +2147,7 @@ SECEOF
       precommit_hooks="" ;;
   esac
 
-  cat > "$SCRIPT_DIR/.pre-commit-config.yaml" <<PCEOF
+  cat > "$PROJECT_DIR/.pre-commit-config.yaml" <<PCEOF
 # Pre-commit hooks — run automatically before each commit
 # Install: pip install pre-commit && pre-commit install
 # Manual run: pre-commit run --all-files
@@ -2163,7 +2173,7 @@ PCEOF
 
   # --- Generate release workflow ---
   info "Generating release workflow..."
-  cat > "$SCRIPT_DIR/.github/workflows/release.yml" <<'RLEOF'
+  cat > "$PROJECT_DIR/.github/workflows/release.yml" <<'RLEOF'
 name: Release
 
 on:
@@ -2217,11 +2227,11 @@ apply_optional_features() {
   # --- Ralph Wiggum ---
   if [[ "$ENABLE_RALPH" == true ]]; then
     info "Setting up Ralph Wiggum..."
-    mkdir -p "$SCRIPT_DIR/scripts"
-    cp "$TEMPLATE_DIR/ralph/ralph-loop.sh" "$SCRIPT_DIR/scripts/ralph-loop.sh"
-    chmod +x "$SCRIPT_DIR/scripts/ralph-loop.sh"
-    cp "$TEMPLATE_DIR/ralph/PROMPT_build.md" "$SCRIPT_DIR/PROMPT_build.md"
-    cp "$TEMPLATE_DIR/ralph/PROMPT_plan.md" "$SCRIPT_DIR/PROMPT_plan.md"
+    mkdir -p "$PROJECT_DIR/scripts"
+    cp "$TEMPLATE_DIR/ralph/ralph-loop.sh" "$PROJECT_DIR/scripts/ralph-loop.sh"
+    chmod +x "$PROJECT_DIR/scripts/ralph-loop.sh"
+    cp "$TEMPLATE_DIR/ralph/PROMPT_build.md" "$PROJECT_DIR/PROMPT_build.md"
+    cp "$TEMPLATE_DIR/ralph/PROMPT_plan.md" "$PROJECT_DIR/PROMPT_plan.md"
     success "Ralph Wiggum installed (scripts/ralph-loop.sh)"
   fi
 
@@ -2231,7 +2241,7 @@ apply_optional_features() {
 
     case "$LANGUAGE" in
       python)
-        cat > "$SCRIPT_DIR/Dockerfile" <<'DKEOF'
+        cat > "$PROJECT_DIR/Dockerfile" <<'DKEOF'
 FROM python:3.12-slim AS base
 
 WORKDIR /app
@@ -2246,7 +2256,7 @@ CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "
 DKEOF
         ;;
       typescript)
-        cat > "$SCRIPT_DIR/Dockerfile" <<'DKEOF'
+        cat > "$PROJECT_DIR/Dockerfile" <<'DKEOF'
 FROM node:20-alpine AS builder
 
 WORKDIR /app
@@ -2266,7 +2276,7 @@ CMD ["node", "dist/index.js"]
 DKEOF
         ;;
       go)
-        cat > "$SCRIPT_DIR/Dockerfile" <<'DKEOF'
+        cat > "$PROJECT_DIR/Dockerfile" <<'DKEOF'
 FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
@@ -2284,7 +2294,7 @@ CMD ["/bin/app"]
 DKEOF
         ;;
       rust)
-        cat > "$SCRIPT_DIR/Dockerfile" <<'DKEOF'
+        cat > "$PROJECT_DIR/Dockerfile" <<'DKEOF'
 FROM rust:1.78-slim AS builder
 
 WORKDIR /app
@@ -2302,7 +2312,7 @@ CMD ["app"]
 DKEOF
         ;;
       *)
-        cat > "$SCRIPT_DIR/Dockerfile" <<'DKEOF'
+        cat > "$PROJECT_DIR/Dockerfile" <<'DKEOF'
 FROM ubuntu:22.04
 
 WORKDIR /app
@@ -2317,7 +2327,7 @@ DKEOF
         ;;
     esac
 
-    cat > "$SCRIPT_DIR/docker-compose.yml" <<DCEOF
+    cat > "$PROJECT_DIR/docker-compose.yml" <<DCEOF
 services:
   app:
     build: .
@@ -2351,7 +2361,7 @@ DCEOF
   # --- Generate VS Code settings ---
   if [[ "$ENABLE_VSCODE" == true ]]; then
     info "Generating VS Code settings..."
-    mkdir -p "$SCRIPT_DIR/.vscode"
+    mkdir -p "$PROJECT_DIR/.vscode"
 
     # settings.json — per language
     local vscode_settings=""
@@ -2414,7 +2424,7 @@ DCEOF
   "editor.tabSize": 2
 }' ;;
     esac
-    echo "$vscode_settings" > "$SCRIPT_DIR/.vscode/settings.json"
+    echo "$vscode_settings" > "$PROJECT_DIR/.vscode/settings.json"
 
     # extensions.json — per language
     local vscode_extensions=""
@@ -2451,7 +2461,7 @@ DCEOF
   "recommendations": []
 }' ;;
     esac
-    echo "$vscode_extensions" > "$SCRIPT_DIR/.vscode/extensions.json"
+    echo "$vscode_extensions" > "$PROJECT_DIR/.vscode/extensions.json"
 
     success "VS Code settings generated (.vscode/)"
   fi
@@ -2474,12 +2484,73 @@ apply_templates() {
 }
 
 apply_permissions() {
-  local settings="$SCRIPT_DIR/.claude/settings.json"
+  local settings="$PROJECT_DIR/.claude/settings.json"
   local tmp_settings
   tmp_settings=$(mktemp)
 
-  # Start with existing settings and add user-chosen permissions
-  cp "$settings" "$tmp_settings"
+  # Start with existing settings or create base template
+  if [[ -f "$settings" ]]; then
+    cp "$settings" "$tmp_settings"
+  else
+    mkdir -p "$PROJECT_DIR/.claude"
+    cat > "$tmp_settings" <<'JSONEOF'
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "NotebookEdit",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git add *)",
+      "Bash(git stash*)",
+      "Bash(git checkout -b *)",
+      "Bash(make test*)",
+      "Bash(make lint*)",
+      "Bash(make check*)",
+      "Bash(make help*)",
+      "Bash(ls)",
+      "Bash(ls *)",
+      "Bash(pwd)",
+      "Bash(which *)",
+      "Bash(find . *)",
+      "Bash(wc *)",
+      "Bash(mkdir *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(git branch -D *)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-main-branch.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+JSONEOF
+  fi
 
   # Build the additional allow rules
   local additions=""
@@ -2529,7 +2600,7 @@ apply_permissions() {
 # Version tracking: stamp the scaffold version into the project
 # ---------------------------------------------------------------------------
 write_version_file() {
-  cat > "$SCRIPT_DIR/.scaffold-version" <<VEOF
+  cat > "$PROJECT_DIR/.scaffold-version" <<VEOF
 version=$SCAFFOLD_VERSION
 date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 VEOF
@@ -2548,11 +2619,11 @@ cleanup_artifacts() {
   header "Cleaning Up"
 
   info "Removing scaffold artifacts..."
-  rm -rf "$SCRIPT_DIR/templates"
+  rm -rf "$PROJECT_DIR/templates"
   success "  Removed templates/"
 
   # Remove this script last
-  local self="$SCRIPT_DIR/scaffold"
+  local self="$PROJECT_DIR/scaffold"
   if [[ -f "$self" ]]; then
     rm "$self"
     success "  Removed scaffold"
@@ -2568,35 +2639,35 @@ init_git() {
   header "Git Initialization"
 
   # If cloned from scaffold repo, remove the cloned .git to start fresh
-  if [[ -d "$SCRIPT_DIR/.git" ]]; then
+  if [[ -d "$PROJECT_DIR/.git" ]]; then
     local remote_url
-    remote_url="$(git -C "$SCRIPT_DIR" remote get-url origin 2>/dev/null || echo "")"
+    remote_url="$(git -C "$PROJECT_DIR" remote get-url origin 2>/dev/null || echo "")"
     if [[ "$remote_url" == *"sakebomb/scaffold"* ]]; then
       info "Removing cloned scaffold git history..."
-      rm -rf "$SCRIPT_DIR/.git"
+      rm -rf "$PROJECT_DIR/.git"
     fi
   fi
 
   # Initialize or verify git repo
-  if [[ -d "$SCRIPT_DIR/.git" ]]; then
+  if [[ -d "$PROJECT_DIR/.git" ]]; then
     info "Git repo already exists."
   else
     info "Initializing git repository..."
-    git -C "$SCRIPT_DIR" init -b main
+    git -C "$PROJECT_DIR" init -b main
     success "Git repo initialized (main branch)"
   fi
 
   # Add remote if provided
   if [[ -n "$GIT_REMOTE" ]]; then
-    git -C "$SCRIPT_DIR" remote add origin "$GIT_REMOTE" 2>/dev/null || \
-      git -C "$SCRIPT_DIR" remote set-url origin "$GIT_REMOTE"
+    git -C "$PROJECT_DIR" remote add origin "$GIT_REMOTE" 2>/dev/null || \
+      git -C "$PROJECT_DIR" remote set-url origin "$GIT_REMOTE"
     success "Remote set: $GIT_REMOTE"
   fi
 
   # Stage and commit
   info "Creating initial commit..."
-  git -C "$SCRIPT_DIR" add -A
-  git -C "$SCRIPT_DIR" commit -m "$(cat <<'EOF'
+  git -C "$PROJECT_DIR" add -A
+  git -C "$PROJECT_DIR" commit -m "$(cat <<'EOF'
 feat: initialize project with scaffold framework
 
 - CLAUDE.md agent constitution with project conventions
@@ -2613,8 +2684,8 @@ EOF
 
   # Show status
   echo ""
-  info "Branch: $(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD)"
-  info "Commits: $(git -C "$SCRIPT_DIR" rev-list --count HEAD)"
+  info "Branch: $(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD)"
+  info "Commits: $(git -C "$PROJECT_DIR" rev-list --count HEAD)"
 }
 
 # ---------------------------------------------------------------------------
@@ -2650,7 +2721,7 @@ show_summary() {
 
   echo ""
   echo "Next steps:"
-  echo "  1. cd $(basename "$SCRIPT_DIR")"
+  echo "  1. cd $(basename "$PROJECT_DIR")"
   echo "  2. Bootstrap dev environment: make setup"
   echo "  3. Start Claude Code: claude"
   echo "  4. Type: /start"
@@ -2675,13 +2746,13 @@ show_summary() {
 # ---------------------------------------------------------------------------
 detect_language() {
   # Detect language from existing config files
-  if [[ -f "$SCRIPT_DIR/pyproject.toml" || -f "$SCRIPT_DIR/setup.py" || -f "$SCRIPT_DIR/setup.cfg" ]]; then
+  if [[ -f "$PROJECT_DIR/pyproject.toml" || -f "$PROJECT_DIR/setup.py" || -f "$PROJECT_DIR/setup.cfg" ]]; then
     echo "python"
-  elif [[ -f "$SCRIPT_DIR/package.json" || -f "$SCRIPT_DIR/tsconfig.json" ]]; then
+  elif [[ -f "$PROJECT_DIR/package.json" || -f "$PROJECT_DIR/tsconfig.json" ]]; then
     echo "typescript"
-  elif [[ -f "$SCRIPT_DIR/go.mod" ]]; then
+  elif [[ -f "$PROJECT_DIR/go.mod" ]]; then
     echo "go"
-  elif [[ -f "$SCRIPT_DIR/Cargo.toml" ]]; then
+  elif [[ -f "$PROJECT_DIR/Cargo.toml" ]]; then
     echo "rust"
   else
     echo "none"
@@ -2692,7 +2763,7 @@ run_migrate() {
   header "Migrating Existing Project"
 
   # Detect project name from directory
-  PROJECT_NAME="${PROJECT_NAME:-$(basename "$SCRIPT_DIR")}"
+  PROJECT_NAME="${PROJECT_NAME:-$(basename "$PROJECT_DIR")}"
   PROJECT_DESC="${PROJECT_DESC:-A project built with Claude Code}"
 
   # Detect language
@@ -2715,7 +2786,7 @@ run_migrate() {
   fi
 
   # --- CLAUDE.md ---
-  if [[ -f "$SCRIPT_DIR/CLAUDE.md" ]]; then
+  if [[ -f "$PROJECT_DIR/CLAUDE.md" ]]; then
     info "CLAUDE.md already exists — skipping"
     # Still check for language conventions
     if [[ "$LANGUAGE" != "none" ]]; then
@@ -2726,35 +2797,35 @@ run_migrate() {
         go)         convention_header="Go Conventions" ;;
         rust)       convention_header="Rust Conventions" ;;
       esac
-      if [[ -n "$convention_header" ]] && ! grep -q "$convention_header" "$SCRIPT_DIR/CLAUDE.md" 2>/dev/null; then
+      if [[ -n "$convention_header" ]] && ! grep -q "$convention_header" "$PROJECT_DIR/CLAUDE.md" 2>/dev/null; then
         if [[ -f "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" ]]; then
           info "Appending $LANGUAGE conventions to CLAUDE.md..."
-          { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md"; } >> "$SCRIPT_DIR/CLAUDE.md"
+          { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md"; } >> "$PROJECT_DIR/CLAUDE.md"
           success "  CLAUDE.md updated with $LANGUAGE conventions"
         fi
       fi
     fi
   else
     info "Creating CLAUDE.md..."
-    # Use the template CLAUDE.md if available, otherwise it should already be in SCRIPT_DIR from install
-    if [[ -f "$SCRIPT_DIR/CLAUDE.md" ]]; then
+    # Use the template CLAUDE.md if available, otherwise it should already be in PROJECT_DIR from install
+    if [[ -f "$PROJECT_DIR/CLAUDE.md" ]]; then
       : # already exists (shouldn't reach here)
     fi
     # Apply language conventions
     if [[ "$LANGUAGE" != "none" && -f "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md" ]]; then
-      { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md"; } >> "$SCRIPT_DIR/CLAUDE.md"
+      { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$LANGUAGE/CONVENTIONS.md"; } >> "$PROJECT_DIR/CLAUDE.md"
     fi
     # Replace placeholders
-    replace_placeholders "$SCRIPT_DIR/CLAUDE.md"
+    replace_placeholders "$PROJECT_DIR/CLAUDE.md"
     success "  CLAUDE.md created"
   fi
 
   # --- .claude/ settings and hooks ---
-  if [[ -f "$SCRIPT_DIR/.claude/settings.json" ]]; then
+  if [[ -f "$PROJECT_DIR/.claude/settings.json" ]]; then
     info ".claude/settings.json already exists — skipping"
   else
     info "Creating .claude/settings.json..."
-    mkdir -p "$SCRIPT_DIR/.claude"
+    mkdir -p "$PROJECT_DIR/.claude"
     # Apply default permissions (safe defaults, commit allowed)
     ALLOW_COMMIT=true
     apply_permissions
@@ -2762,7 +2833,7 @@ run_migrate() {
   fi
 
   # --- Skills ---
-  local skills_dir="$SCRIPT_DIR/.claude/skills"
+  local skills_dir="$PROJECT_DIR/.claude/skills"
   local skills=(plan review test lesson checkpoint status simplify index save load backlog doctor start refactor)
   local skills_added=0
   for s in "${skills[@]}"; do
@@ -2780,33 +2851,33 @@ run_migrate() {
   fi
 
   # --- Hooks ---
-  if [[ -f "$SCRIPT_DIR/.claude/hooks/protect-main-branch.sh" ]]; then
+  if [[ -f "$PROJECT_DIR/.claude/hooks/protect-main-branch.sh" ]]; then
     info "Hooks already exist — skipping"
   else
     info "Adding hooks..."
-    mkdir -p "$SCRIPT_DIR/.claude/hooks"
+    mkdir -p "$PROJECT_DIR/.claude/hooks"
     success "  Hooks added"
   fi
 
   # --- Agents ---
-  if [[ -d "$SCRIPT_DIR/agents" ]] && [[ -n "$(ls -A "$SCRIPT_DIR/agents" 2>/dev/null)" ]]; then
+  if [[ -d "$PROJECT_DIR/agents" ]] && [[ -n "$(ls -A "$PROJECT_DIR/agents" 2>/dev/null)" ]]; then
     info "agents/ already exists — skipping"
   else
     info "Creating agents/..."
-    mkdir -p "$SCRIPT_DIR/agents"
+    mkdir -p "$PROJECT_DIR/agents"
     success "  agents/ created"
   fi
 
   # --- Tasks ---
-  if [[ -d "$SCRIPT_DIR/tasks" ]] && [[ -f "$SCRIPT_DIR/tasks/todo.md" ]]; then
+  if [[ -d "$PROJECT_DIR/tasks" ]] && [[ -f "$PROJECT_DIR/tasks/todo.md" ]]; then
     info "tasks/ already exists — skipping"
   else
     info "Creating tasks/..."
-    mkdir -p "$SCRIPT_DIR/tasks"
-    if [[ ! -f "$SCRIPT_DIR/tasks/todo.md" ]]; then
+    mkdir -p "$PROJECT_DIR/tasks"
+    if [[ ! -f "$PROJECT_DIR/tasks/todo.md" ]]; then
       local today
       today=$(date +%Y-%m-%d)
-      cat > "$SCRIPT_DIR/tasks/todo.md" <<PLAN
+      cat > "$PROJECT_DIR/tasks/todo.md" <<PLAN
 # Task Plan — ${PROJECT_NAME}
 
 > Created: ${today}
@@ -2822,8 +2893,8 @@ _Define your project objective here, or run \`/plan\` in Claude Code._
 - [ ] 2. Second task
 PLAN
     fi
-    if [[ ! -f "$SCRIPT_DIR/tasks/lessons.md" ]]; then
-      cat > "$SCRIPT_DIR/tasks/lessons.md" <<'LESSONS'
+    if [[ ! -f "$PROJECT_DIR/tasks/lessons.md" ]]; then
+      cat > "$PROJECT_DIR/tasks/lessons.md" <<'LESSONS'
 # Project Knowledge Base
 
 > This file accumulates across sessions.
@@ -2837,8 +2908,8 @@ _No entries yet._
 _No entries yet._
 LESSONS
     fi
-    if [[ ! -f "$SCRIPT_DIR/tasks/tests.md" ]]; then
-      cat > "$SCRIPT_DIR/tasks/tests.md" <<'TESTS'
+    if [[ ! -f "$PROJECT_DIR/tasks/tests.md" ]]; then
+      cat > "$PROJECT_DIR/tasks/tests.md" <<'TESTS'
 # Test Registry
 
 > Update when adding or removing tests.
@@ -2851,8 +2922,8 @@ LESSONS
 | `make check` | lint + typecheck + test |
 TESTS
     fi
-    if [[ ! -f "$SCRIPT_DIR/tasks/session.md" ]]; then
-      cat > "$SCRIPT_DIR/tasks/session.md" <<'SESSION'
+    if [[ ! -f "$PROJECT_DIR/tasks/session.md" ]]; then
+      cat > "$PROJECT_DIR/tasks/session.md" <<'SESSION'
 # Session State
 
 _Use `/save` and `/load` to manage session state._
@@ -2864,8 +2935,8 @@ SESSION
   # --- Test directories ---
   local test_dirs_created=0
   for d in tests/unit tests/integration tests/agent; do
-    if [[ ! -d "$SCRIPT_DIR/$d" ]]; then
-      mkdir -p "$SCRIPT_DIR/$d"
+    if [[ ! -d "$PROJECT_DIR/$d" ]]; then
+      mkdir -p "$PROJECT_DIR/$d"
       test_dirs_created=$((test_dirs_created + 1))
     fi
   done
@@ -2876,30 +2947,30 @@ SESSION
   fi
 
   # --- Scratch ---
-  if [[ ! -d "$SCRIPT_DIR/scratch" ]]; then
-    mkdir -p "$SCRIPT_DIR/scratch"
-    touch "$SCRIPT_DIR/scratch/.gitkeep"
+  if [[ ! -d "$PROJECT_DIR/scratch" ]]; then
+    mkdir -p "$PROJECT_DIR/scratch"
+    touch "$PROJECT_DIR/scratch/.gitkeep"
     success "  Created scratch/"
   fi
 
   # --- Makefile (only if missing) ---
-  if [[ -f "$SCRIPT_DIR/Makefile" ]]; then
+  if [[ -f "$PROJECT_DIR/Makefile" ]]; then
     info "Makefile already exists — skipping"
   else
     info "Makefile not found — you may want to create one or run full scaffold"
   fi
 
   # --- .github templates (only if missing) ---
-  if [[ -d "$SCRIPT_DIR/.github/ISSUE_TEMPLATE" ]]; then
+  if [[ -d "$PROJECT_DIR/.github/ISSUE_TEMPLATE" ]]; then
     info ".github/ templates already exist — skipping"
   else
     info ".github/ templates not found — they'll be added if running from scaffold repo"
   fi
 
   # --- GETTING_STARTED.md ---
-  if [[ ! -f "$SCRIPT_DIR/GETTING_STARTED.md" ]]; then
+  if [[ ! -f "$PROJECT_DIR/GETTING_STARTED.md" ]]; then
     info "Creating GETTING_STARTED.md..."
-    cat > "$SCRIPT_DIR/GETTING_STARTED.md" <<GUIDE
+    cat > "$PROJECT_DIR/GETTING_STARTED.md" <<GUIDE
 # Getting Started with ${PROJECT_NAME}
 
 ## Launch Claude Code
@@ -2936,12 +3007,12 @@ GUIDE
 # ---------------------------------------------------------------------------
 run_add_language() {
   local lang="$ADD_LANGUAGE"
-  local target_dir="$SCRIPT_DIR"
+  local target_dir="$PROJECT_DIR"
   local dir_prefix=""
 
   # Monorepo mode: place files in subdirectory
   if [[ -n "$ADD_DIR" ]]; then
-    target_dir="$SCRIPT_DIR/$ADD_DIR"
+    target_dir="$PROJECT_DIR/$ADD_DIR"
     # Derive prefix from dir name for Makefile targets (e.g., backend/services → backend-services)
     dir_prefix="$(echo "$ADD_DIR" | tr '/' '-' | sed 's/-$//')-"
     mkdir -p "$target_dir"
@@ -2950,7 +3021,7 @@ run_add_language() {
   header "Adding $lang to existing project${ADD_DIR:+ (in $ADD_DIR/)}"
 
   # Validate project has been scaffolded already
-  if [[ ! -f "$SCRIPT_DIR/CLAUDE.md" ]]; then
+  if [[ ! -f "$PROJECT_DIR/CLAUDE.md" ]]; then
     error "No CLAUDE.md found. Run ./scaffold first to initialize the project."
     exit 1
   fi
@@ -2969,11 +3040,11 @@ run_add_language() {
     rust)       convention_header="Rust Conventions" ;;
   esac
 
-  if grep -q "$convention_header" "$SCRIPT_DIR/CLAUDE.md" 2>/dev/null; then
+  if grep -q "$convention_header" "$PROJECT_DIR/CLAUDE.md" 2>/dev/null; then
     info "$convention_header already in CLAUDE.md — skipping"
   elif [[ -f "$TEMPLATE_DIR/$lang/CONVENTIONS.md" ]]; then
     info "Appending $lang conventions to CLAUDE.md..."
-    { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$lang/CONVENTIONS.md"; } >> "$SCRIPT_DIR/CLAUDE.md"
+    { echo ""; echo "---"; echo ""; cat "$TEMPLATE_DIR/$lang/CONVENTIONS.md"; } >> "$PROJECT_DIR/CLAUDE.md"
     success "CLAUDE.md updated with $lang conventions"
   fi
 
@@ -2982,7 +3053,7 @@ run_add_language() {
   local tmpl_dir="$TEMPLATE_DIR/$lang"
 
   # Detect project name from existing CLAUDE.md or directory name
-  PROJECT_NAME="${PROJECT_NAME:-$(basename "$SCRIPT_DIR")}"
+  PROJECT_NAME="${PROJECT_NAME:-$(basename "$PROJECT_DIR")}"
   PROJECT_DESC="${PROJECT_DESC:-A project built with Claude Code}"
   local escaped_name escaped_desc
   escaped_name="$(sed_escape "$PROJECT_NAME")"
@@ -3025,13 +3096,13 @@ run_add_language() {
     info "Updating .gitignore with $lang entries..."
     while IFS= read -r line; do
       if [[ -n "$line" && "$line" != \#* ]]; then
-        if ! grep -qxF "$line" "$SCRIPT_DIR/.gitignore" 2>/dev/null; then
-          echo "$line" >> "$SCRIPT_DIR/.gitignore"
+        if ! grep -qxF "$line" "$PROJECT_DIR/.gitignore" 2>/dev/null; then
+          echo "$line" >> "$PROJECT_DIR/.gitignore"
         fi
       elif [[ "$line" == \#* ]]; then
         # Add comment headers if not already present
-        if ! grep -qxF "$line" "$SCRIPT_DIR/.gitignore" 2>/dev/null; then
-          echo "$line" >> "$SCRIPT_DIR/.gitignore"
+        if ! grep -qxF "$line" "$PROJECT_DIR/.gitignore" 2>/dev/null; then
+          echo "$line" >> "$PROJECT_DIR/.gitignore"
         fi
       fi
     done < "$tmpl_dir/gitignore.append"
@@ -3079,10 +3150,10 @@ run_add_language() {
     cmd_prefix="cd $ADD_DIR && "
   fi
 
-  if grep -q "^test-${mk_prefix}:" "$SCRIPT_DIR/Makefile" 2>/dev/null; then
+  if grep -q "^test-${mk_prefix}:" "$PROJECT_DIR/Makefile" 2>/dev/null; then
     info "  Makefile targets for $lang${ADD_DIR:+ ($ADD_DIR)} already exist — skipping"
   else
-    cat >> "$SCRIPT_DIR/Makefile" <<MKEOF
+    cat >> "$PROJECT_DIR/Makefile" <<MKEOF
 
 # --- ${lang} targets${ADD_DIR:+ ($ADD_DIR)} (added via --add) ---
 .PHONY: test-${mk_prefix} lint-${mk_prefix} fmt-${mk_prefix} typecheck-${mk_prefix}
@@ -3103,7 +3174,7 @@ MKEOF
   fi
 
   # --- Update CI workflow to include second language ---
-  local ci_file="$SCRIPT_DIR/.github/workflows/ci.yml"
+  local ci_file="$PROJECT_DIR/.github/workflows/ci.yml"
   if [[ -f "$ci_file" ]]; then
     if grep -q "$lang" "$ci_file" 2>/dev/null; then
       info "  CI already references $lang — skipping"
