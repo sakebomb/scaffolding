@@ -1779,6 +1779,2447 @@ apply_language_config() {
 # ---------------------------------------------------------------------------
 # Apply: Common project files
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Generate: Makefile (embedded — no template dependency)
+# ---------------------------------------------------------------------------
+generate_makefile() {
+  local file="$PROJECT_DIR/Makefile"
+  if [[ -f "$file" ]]; then
+    info "Makefile already exists — skipping"
+    return
+  fi
+  info "Generating Makefile..."
+  cat > "$file" <<'MKEOF'
+# =============================================================================
+# Makefile — Generic Test Runner & Development Tasks
+# =============================================================================
+# Designed to work with the CLAUDE.md testing framework (Section 5).
+# Detects project language automatically. Override with: make test LANG=python
+#
+# Supported languages: python, typescript, go, rust
+#
+# Usage:
+#   make test              Run full suite (all tiers, fail-fast)
+#   make test-unit         Tier 1 — Unit tests only
+#   make test-integration  Tier 2 — Integration tests only
+#   make test-agent        Tier 3 — Agent behavior tests only
+#   make test-file FILE=x  Run a single test file
+#   make test-coverage     Full suite + coverage report
+#   make lint              Run linter
+#   make fmt               Run formatter
+#   make typecheck         Run type checker
+#   make build             Compile / build the project
+#   make check             Lint + typecheck + full test suite (pre-PR gate)
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Language Detection (override with LANG=python|typescript|go|rust)
+# ---------------------------------------------------------------------------
+LANG ?= auto
+
+ifeq ($(LANG),auto)
+  ifneq (,$(wildcard Cargo.toml))
+    DETECTED_LANG := rust
+  else ifneq (,$(wildcard go.mod))
+    DETECTED_LANG := go
+  else ifneq (,$(wildcard tsconfig.json))
+    DETECTED_LANG := typescript
+  else ifneq (,$(wildcard package.json))
+    DETECTED_LANG := typescript
+  else ifneq (,$(wildcard pyproject.toml setup.py setup.cfg requirements.txt))
+    DETECTED_LANG := python
+  else
+    DETECTED_LANG := python
+  endif
+else
+  DETECTED_LANG := $(LANG)
+endif
+
+# ---------------------------------------------------------------------------
+# Python Configuration
+# ---------------------------------------------------------------------------
+PYTHON_TEST_CMD     := python -m pytest
+PYTHON_UNIT_DIR     := tests/unit
+PYTHON_INT_DIR      := tests/integration
+PYTHON_AGENT_DIR    := tests/agent
+PYTHON_LINT_CMD     := python -m ruff check .
+PYTHON_FMT_CMD      := python -m ruff format .
+PYTHON_TYPE_CMD     := python -m mypy .
+PYTHON_BUILD_CMD    := @echo "Python: no compilation needed"
+PYTHON_COV_FLAGS    := --cov --cov-report=term-missing --cov-report=html:coverage_html
+PYTHON_FILE_CMD     := python -m pytest
+PYTHON_SETUP_CMD    := python -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]' 2>/dev/null || pip install -e .
+
+# ---------------------------------------------------------------------------
+# TypeScript Configuration
+# ---------------------------------------------------------------------------
+TS_TEST_CMD         := npx vitest run
+TS_UNIT_DIR         := tests/unit
+TS_INT_DIR          := tests/integration
+TS_AGENT_DIR        := tests/agent
+TS_LINT_CMD         := npx eslint .
+TS_FMT_CMD          := npx eslint . --fix
+TS_TYPE_CMD         := npx tsc --noEmit
+TS_BUILD_CMD        := npx tsc
+TS_COV_FLAGS        := --coverage
+TS_FILE_CMD         := npx vitest run
+TS_SETUP_CMD        := npm install
+
+# ---------------------------------------------------------------------------
+# Go Configuration
+# ---------------------------------------------------------------------------
+GO_TEST_CMD         := go test
+GO_UNIT_DIR         := ./tests/unit/...
+GO_INT_DIR          := ./tests/integration/...
+GO_AGENT_DIR        := ./tests/agent/...
+GO_LINT_CMD         := golangci-lint run
+GO_FMT_CMD          := gofmt -w .
+GO_TYPE_CMD         := @echo "Go: type checking included in build"
+GO_BUILD_CMD        := go build ./...
+GO_COV_FLAGS        := -coverprofile=coverage.out
+GO_FILE_CMD         := go test
+GO_SETUP_CMD        := go mod download
+
+# ---------------------------------------------------------------------------
+# Rust Configuration
+# ---------------------------------------------------------------------------
+RUST_TEST_CMD       := cargo test
+RUST_UNIT_DIR       :=
+RUST_INT_DIR        :=
+RUST_AGENT_DIR      :=
+RUST_LINT_CMD       := cargo clippy -- -D warnings
+RUST_FMT_CMD        := cargo fmt
+RUST_TYPE_CMD       := @echo "Rust: type checking included in build"
+RUST_BUILD_CMD      := cargo build
+RUST_COV_FLAGS      :=
+RUST_FILE_CMD       := cargo test
+RUST_SETUP_CMD      := cargo fetch
+
+# ---------------------------------------------------------------------------
+# Resolve commands based on detected language
+# ---------------------------------------------------------------------------
+ifeq ($(DETECTED_LANG),python)
+  TEST_CMD     := $(PYTHON_TEST_CMD)
+  UNIT_DIR     := $(PYTHON_UNIT_DIR)
+  INT_DIR      := $(PYTHON_INT_DIR)
+  AGENT_DIR    := $(PYTHON_AGENT_DIR)
+  LINT_CMD     := $(PYTHON_LINT_CMD)
+  FMT_CMD      := $(PYTHON_FMT_CMD)
+  TYPE_CMD     := $(PYTHON_TYPE_CMD)
+  BUILD_CMD    := $(PYTHON_BUILD_CMD)
+  COV_FLAGS    := $(PYTHON_COV_FLAGS)
+  FILE_CMD     := $(PYTHON_FILE_CMD)
+  SETUP_CMD    := $(PYTHON_SETUP_CMD)
+else ifeq ($(DETECTED_LANG),typescript)
+  TEST_CMD     := $(TS_TEST_CMD)
+  UNIT_DIR     := $(TS_UNIT_DIR)
+  INT_DIR      := $(TS_INT_DIR)
+  AGENT_DIR    := $(TS_AGENT_DIR)
+  LINT_CMD     := $(TS_LINT_CMD)
+  FMT_CMD      := $(TS_FMT_CMD)
+  TYPE_CMD     := $(TS_TYPE_CMD)
+  BUILD_CMD    := $(TS_BUILD_CMD)
+  COV_FLAGS    := $(TS_COV_FLAGS)
+  FILE_CMD     := $(TS_FILE_CMD)
+  SETUP_CMD    := $(TS_SETUP_CMD)
+else ifeq ($(DETECTED_LANG),go)
+  TEST_CMD     := $(GO_TEST_CMD)
+  UNIT_DIR     := $(GO_UNIT_DIR)
+  INT_DIR      := $(GO_INT_DIR)
+  AGENT_DIR    := $(GO_AGENT_DIR)
+  LINT_CMD     := $(GO_LINT_CMD)
+  FMT_CMD      := $(GO_FMT_CMD)
+  TYPE_CMD     := $(GO_TYPE_CMD)
+  BUILD_CMD    := $(GO_BUILD_CMD)
+  COV_FLAGS    := $(GO_COV_FLAGS)
+  FILE_CMD     := $(GO_FILE_CMD)
+  SETUP_CMD    := $(GO_SETUP_CMD)
+else ifeq ($(DETECTED_LANG),rust)
+  TEST_CMD     := $(RUST_TEST_CMD)
+  UNIT_DIR     := $(RUST_UNIT_DIR)
+  INT_DIR      := $(RUST_INT_DIR)
+  AGENT_DIR    := $(RUST_AGENT_DIR)
+  LINT_CMD     := $(RUST_LINT_CMD)
+  FMT_CMD      := $(RUST_FMT_CMD)
+  TYPE_CMD     := $(RUST_TYPE_CMD)
+  BUILD_CMD    := $(RUST_BUILD_CMD)
+  COV_FLAGS    := $(RUST_COV_FLAGS)
+  FILE_CMD     := $(RUST_FILE_CMD)
+  SETUP_CMD    := $(RUST_SETUP_CMD)
+endif
+
+# ---------------------------------------------------------------------------
+# Common flags
+# ---------------------------------------------------------------------------
+VERBOSE ?=
+ifeq ($(VERBOSE),1)
+  V_FLAG := -v
+else
+  V_FLAG :=
+endif
+
+# ---------------------------------------------------------------------------
+# Targets
+# ---------------------------------------------------------------------------
+
+.PHONY: test test-unit test-integration test-agent test-file test-coverage \
+        lint fmt typecheck build check setup setup-github help
+
+## Run full test suite: unit → integration → agent (fail-fast)
+## For Rust: cargo test runs all tests; tiers are filtered by test name prefix
+test:
+	@echo "═══ Running Full Test Suite ($(DETECTED_LANG)) ═══"
+ifeq ($(DETECTED_LANG),rust)
+	@echo "--- Running all Rust tests ---"
+	@$(TEST_CMD) $(V_FLAG) || (echo "❌ Tests failed." && exit 1)
+else
+	@echo "--- Tier 1: Unit Tests ---"
+	@$(TEST_CMD) $(UNIT_DIR) $(V_FLAG) || (echo "❌ Unit tests failed — stopping." && exit 1)
+	@echo "--- Tier 2: Integration Tests ---"
+	@$(TEST_CMD) $(INT_DIR) $(V_FLAG) || (echo "❌ Integration tests failed — stopping." && exit 1)
+	@echo "--- Tier 3: Agent Behavior Tests ---"
+	@$(TEST_CMD) $(AGENT_DIR) $(V_FLAG) || (echo "❌ Agent behavior tests failed — stopping." && exit 1)
+endif
+	@echo "✅ All tiers passed."
+
+## Tier 1: Unit tests only
+test-unit:
+	@echo "--- Tier 1: Unit Tests ($(DETECTED_LANG)) ---"
+ifeq ($(DETECTED_LANG),rust)
+	$(TEST_CMD) --lib $(V_FLAG)
+else
+	$(TEST_CMD) $(UNIT_DIR) $(V_FLAG)
+endif
+
+## Tier 2: Integration tests only
+test-integration:
+	@echo "--- Tier 2: Integration Tests ($(DETECTED_LANG)) ---"
+ifeq ($(DETECTED_LANG),rust)
+	$(TEST_CMD) --test '*' $(V_FLAG)
+else
+	$(TEST_CMD) $(INT_DIR) $(V_FLAG)
+endif
+
+## Tier 3: Agent behavior tests only
+test-agent:
+	@echo "--- Tier 3: Agent Behavior Tests ($(DETECTED_LANG)) ---"
+ifeq ($(DETECTED_LANG),rust)
+	$(TEST_CMD) --test 'agent_*' $(V_FLAG)
+else
+	$(TEST_CMD) $(AGENT_DIR) $(V_FLAG)
+endif
+
+## Run a single test file (usage: make test-file FILE=tests/unit/test_foo.py)
+test-file:
+ifndef FILE
+	@echo "Usage: make test-file FILE=path/to/test_file"
+	@exit 1
+endif
+	$(FILE_CMD) $(FILE) $(V_FLAG)
+
+## Full suite with coverage report
+test-coverage:
+	@echo "═══ Running Full Suite + Coverage ($(DETECTED_LANG)) ═══"
+ifeq ($(DETECTED_LANG),rust)
+	$(TEST_CMD) $(COV_FLAGS) $(V_FLAG)
+else
+	$(TEST_CMD) $(UNIT_DIR) $(INT_DIR) $(AGENT_DIR) $(COV_FLAGS) $(V_FLAG)
+endif
+
+## Run linter
+lint:
+	@echo "--- Linting ($(DETECTED_LANG)) ---"
+	$(LINT_CMD)
+
+## Run formatter
+fmt:
+	@echo "--- Formatting ($(DETECTED_LANG)) ---"
+	$(FMT_CMD)
+
+## Run type checker
+typecheck:
+	@echo "--- Type Checking ($(DETECTED_LANG)) ---"
+	$(TYPE_CMD)
+
+## Compile / build the project
+build:
+	@echo "--- Building ($(DETECTED_LANG)) ---"
+	$(BUILD_CMD)
+
+## Pre-PR gate: lint + typecheck + full test suite
+check: lint typecheck test
+	@echo "✅ All checks passed — ready for PR."
+
+## Bootstrap dev environment: install deps, set up pre-commit
+setup:
+	@echo "═══ Setting up development environment ($(DETECTED_LANG)) ═══"
+	@echo "--- Installing dependencies ---"
+	$(SETUP_CMD)
+	@if [ -f .pre-commit-config.yaml ]; then \
+		echo "--- Setting up pre-commit hooks ---"; \
+		pre-commit install 2>/dev/null || echo "⚠️  pre-commit not found — install with: pip install pre-commit"; \
+	fi
+	@echo ""
+	@echo "✅ Setup complete. Run 'make check' to verify everything works."
+
+## Set up GitHub labels and project management
+setup-github:
+	@echo "═══ Setting up GitHub project management ═══"
+	@echo "Creating labels..."
+	@gh label create "bug" --color "d73a4a" --description "Something isn't working" --force 2>/dev/null || true
+	@gh label create "feature" --color "0075ca" --description "New feature or enhancement" --force 2>/dev/null || true
+	@gh label create "task" --color "0e8a16" --description "Development task or chore" --force 2>/dev/null || true
+	@gh label create "chore" --color "e4e669" --description "Maintenance or cleanup" --force 2>/dev/null || true
+	@gh label create "refactor" --color "d4c5f9" --description "Code restructuring, no behavior change" --force 2>/dev/null || true
+	@gh label create "P0-critical" --color "b60205" --description "Drop everything" --force 2>/dev/null || true
+	@gh label create "P1-high" --color "d93f0b" --description "Fix this sprint" --force 2>/dev/null || true
+	@gh label create "P2-medium" --color "fbca04" --description "Plan for next sprint" --force 2>/dev/null || true
+	@gh label create "P3-low" --color "c5def5" --description "Nice to have" --force 2>/dev/null || true
+	@gh label create "needs-triage" --color "f9d0c4" --description "Needs review and prioritization" --force 2>/dev/null || true
+	@gh label create "ready" --color "0e8a16" --description "Ready to be picked up" --force 2>/dev/null || true
+	@gh label create "blocked" --color "b60205" --description "Waiting on external dependency" --force 2>/dev/null || true
+	@gh label create "in-progress" --color "1d76db" --description "Currently being worked on" --force 2>/dev/null || true
+	@echo "✅ Labels created"
+
+## Show available targets
+help:
+	@echo "Available targets:"
+	@echo "  make test              Full suite (unit → integration → agent, fail-fast)"
+	@echo "  make test-unit         Tier 1 — Unit tests"
+	@echo "  make test-integration  Tier 2 — Integration tests"
+	@echo "  make test-agent        Tier 3 — Agent behavior tests"
+	@echo "  make test-file FILE=x  Single test file"
+	@echo "  make test-coverage     Full suite + coverage report"
+	@echo "  make lint              Run linter"
+	@echo "  make fmt               Run formatter"
+	@echo "  make typecheck         Run type checker"
+	@echo "  make build             Compile / build"
+	@echo "  make check             Lint + typecheck + full suite (pre-PR gate)"
+	@echo "  make setup             Bootstrap dev environment (deps + pre-commit)"
+	@echo "  make setup-github      Create GitHub labels (requires gh CLI)"
+	@echo ""
+	@echo "Options:"
+	@echo "  LANG=python|typescript|go|rust  Override language detection"
+	@echo "  VERBOSE=1                       Verbose test output"
+	@echo ""
+	@echo "Detected language: $(DETECTED_LANG)"
+MKEOF
+  success "Makefile generated"
+}
+
+
+# ---------------------------------------------------------------------------
+# Generate: Agent specifications (embedded — no template dependency)
+# ---------------------------------------------------------------------------
+generate_agents() {
+  if [[ -d "$PROJECT_DIR/agents" ]] && [[ -f "$PROJECT_DIR/agents/README.md" ]]; then
+    info "agents/ already exists — skipping"
+    return
+  fi
+  info "Generating agent specifications..."
+  mkdir -p "$PROJECT_DIR/agents"
+
+  cat > "$PROJECT_DIR/agents/README.md" <<'_EMBED_EOF_1'
+# /agents
+
+Agent specifications for Claude Code subagents. Each agent has a focused purpose, defined inputs/outputs, and a context budget to prevent window bloat.
+
+## Agent Roster
+
+### Core Agents (workflow essentials)
+
+| Agent | File | Purpose | Context Budget | Slash Command |
+|-------|------|---------|---------------|---------------|
+| **Plan** | `plan-agent.md` | Break down tasks into checkpointed implementation plans | 30% | `/plan` |
+| **Research** | `research-agent.md` | Deep-dive investigation, library evaluation, context gathering | 40% | — |
+| **Code Review** | `code-review-agent.md` | Pre-commit diff review for bugs, style, and security | 20% | `/review` |
+| **Test Runner** | `test-runner-agent.md` | Run tests, analyze failures, propose fixes | 25% | `/test` |
+
+### Extended Agents (specialized capabilities)
+
+| Agent | File | Purpose | Context Budget | Slash Command |
+|-------|------|---------|---------------|---------------|
+| **Build Validator** | `build-validator-agent.md` | Compile, type-check, lint — "does it build?" | 15% | — |
+| **Code Architect** | `code-architect-agent.md` | System design, architecture decisions, tradeoff analysis | 35% | — |
+| **Code Simplifier** | `code-simplifier-agent.md` | Find unnecessary complexity, suggest simplifications | 25% | `/simplify` |
+| **Verify** | `verify-agent.md` | Full pre-merge pipeline (build + test + review) | 30% | — |
+
+## When to Use Which Agent
+
+```
+Task received
+├── Complex? (5+ steps, unclear scope)
+│   └── Plan Agent → structured plan in tasks/todo.md
+│
+├── Need context? (unfamiliar code, new library, API docs)
+│   └── Research Agent → findings in scratch/research_*.md
+│
+├── Architecture question? (system design, technology choice)
+│   └── Code Architect → analysis in scratch/architecture_*.md
+│
+├── Code written → pre-commit checks:
+│   ├── Build Validator → compile + type-check + lint
+│   ├── Test Runner → unit → integration → agent tests
+│   └── Code Review → diff review for bugs & security
+│
+├── Something feel over-engineered?
+│   └── Code Simplifier → complexity report in scratch/simplify_*.md
+│
+└── Ready to merge?
+    └── Verify Agent → full pipeline (build + test + review + summary)
+```
+
+## Orchestration Rules
+
+1. **Parallelize when independent**: Research + Code Review can run simultaneously. Build Validator must finish before Test Runner starts.
+2. **Context budget enforcement**: If a subtask would consume >20% of remaining context, delegate to a subagent.
+3. **Output hygiene**: Agents write detailed output to `scratch/`. Only summaries (≤10 lines) return to the main context.
+4. **Don't chain unnecessarily**: If a task only needs one agent, use one agent. Don't run the full pipeline for a typo fix.
+
+## Spec Convention
+
+Each agent spec follows this structure:
+
+```markdown
+# Agent: <Name>
+
+## Purpose
+What this agent does and when to use it.
+
+## When to Use
+Trigger conditions and scenarios.
+
+## Inputs
+What information it needs to operate.
+
+## Outputs
+What it produces, where it writes, and what it returns to main context.
+
+## Context Budget
+Maximum percentage of context window it should consume.
+
+## Rules
+Constraints, behavioral guidelines, and edge cases.
+```
+
+## Adding New Agents
+
+1. Create `agents/<name>-agent.md` following the convention above.
+2. Add the agent to the roster table in this README.
+3. Update the "When to Use" decision tree if applicable.
+4. If the agent has a slash command, create a corresponding skill in `.claude/skills/`.
+5. Update CLAUDE.md Section 4.2 with a summary reference.
+_EMBED_EOF_1
+
+  cat > "$PROJECT_DIR/agents/build-validator-agent.md" <<'_EMBED_EOF_2'
+# Agent: Build Validator
+
+## Purpose
+
+Verify that the project compiles, type-checks, and passes linting. Catches structural errors (missing imports, type mismatches, syntax errors, lint violations) before tests even run. This is the "does it build?" check.
+
+## When to Use
+
+- After writing or modifying code, before running tests
+- When refactoring (changing signatures, moving files, renaming)
+- After adding or updating dependencies
+- Called by the Verify Agent as the first step in the pre-merge pipeline
+
+## Inputs
+
+- Language/build system (detected from project config: pyproject.toml, package.json, go.mod, Cargo.toml)
+- Scope of changes (optional — full build or incremental)
+
+## Outputs
+
+Results written to `scratch/build_validation_latest.md` with:
+
+```
+## Build Validation Report
+
+### Compilation: PASS / FAIL
+- [details if failed]
+
+### Type Checking: PASS / FAIL / SKIPPED
+- [details if failed]
+
+### Linting: PASS / FAIL
+- [violation count by severity]
+- [details for errors, summary for warnings]
+
+### Verdict: BUILD OK / BUILD BROKEN
+```
+
+Returns ≤5 line summary to main context.
+
+## Context Budget
+
+≤15% of available window (build output is usually compact).
+
+## Build Commands by Language
+
+| Language | Compile | Type Check | Lint |
+|----------|---------|-----------|------|
+| Python | N/A (interpreted) | `mypy .` or `pyright .` | `ruff check .` |
+| TypeScript | `npx tsc --noEmit` | (included in tsc) | `npx eslint .` |
+| Go | `go build ./...` | (included in build) | `golangci-lint run` |
+| Rust | `cargo build` | (included in build) | `cargo clippy` |
+
+Use `make lint` if available — it should be configured for the project's language.
+
+## Rules
+
+- Always run lint before reporting — even if compilation succeeds, lint violations block.
+- Parse error output to identify the specific file and line causing the failure.
+- For type errors: show the expected vs. actual type and the offending expression.
+- For lint errors: distinguish between errors (must fix) and warnings (should fix).
+- If the build fails due to a missing dependency, flag it — don't try to install it.
+- Don't attempt fixes — report findings and let the developer or another agent handle fixes.
+- If the project has no type checker configured, note it as SKIPPED, not FAIL.
+_EMBED_EOF_2
+
+  cat > "$PROJECT_DIR/agents/code-architect-agent.md" <<'_EMBED_EOF_3'
+# Agent: Code Architect
+
+## Purpose
+
+System-level design agent for architecture decisions, technology evaluation, and structural planning. Thinks about system boundaries, data flow, component responsibility, and long-term maintainability. This is the "how should this be structured?" agent — higher-level than the Plan Agent.
+
+## When to Use
+
+- Designing a new system or major feature from scratch
+- Evaluating whether to add a new dependency, service, or infrastructure component
+- Deciding between fundamentally different approaches (monolith vs. microservice, SQL vs. NoSQL, etc.)
+- Refactoring that changes system boundaries or data flow
+- When the Plan Agent identifies architectural decisions that need deeper analysis
+
+## Inputs
+
+- Problem description (what capability is needed)
+- Constraints (performance requirements, budget, team size, timeline)
+- Current architecture context (relevant file paths, existing patterns)
+- Specific question to answer (if scoped — e.g., "should we use WebSockets or SSE?")
+
+## Outputs
+
+Analysis written to `scratch/architecture_<topic>.md` with:
+
+```
+## Architecture Decision: <topic>
+
+### Context
+What problem are we solving and what constraints exist.
+
+### Options Evaluated
+#### Option A: <name>
+- How it works: ...
+- Pros: ...
+- Cons: ...
+- Effort: low / medium / high
+- Risk: low / medium / high
+
+#### Option B: <name>
+- (same structure)
+
+### Recommendation
+Which option and why. What tradeoffs are we accepting.
+
+### Migration Path
+How to get from current state to recommended state.
+
+### Decision Record
+If approved, this section captures the final decision for future reference.
+```
+
+Returns path + ≤10 line summary to main context.
+
+## Context Budget
+
+≤35% of available window (architecture analysis requires broad context).
+
+## Rules
+
+- Always present at least 2 options with honest tradeoffs — never recommend without comparison.
+- Include effort and risk estimates for each option.
+- Consider the team/project's current capabilities — don't recommend Kubernetes for a solo dev project.
+- Evaluate options against the project's stated principles (CLAUDE.md Section 1: simplicity first, minimal impact).
+- Flag irreversible decisions explicitly — technology choices that are expensive to undo.
+- Don't over-architect — "the simplest thing that works" is often the right answer.
+- If the question is too narrow for architecture-level analysis, defer to the Plan Agent.
+- Include a migration path — how do we get from here to there incrementally?
+- Reference existing code patterns — don't propose structures that conflict with the codebase's style.
+_EMBED_EOF_3
+
+  cat > "$PROJECT_DIR/agents/code-review-agent.md" <<'_EMBED_EOF_4'
+# Agent: Code Review
+
+## Purpose
+
+Pre-commit diff review — catch bugs, style issues, security concerns, and missed edge cases before code is committed. Acts as an automated first-pass reviewer.
+
+## When to Use
+
+- Before every commit on non-trivial changes
+- **Mandatory** for changes touching: auth, data pipelines, agent behavior logic, payment processing, database migrations
+- Triggered via `/review [scope]`
+- Called by the Verify Agent as part of the pre-merge pipeline
+
+## Inputs
+
+- Git diff or specific file paths of changed files
+- Description of the intended change (what should this diff accomplish?)
+- Context on the broader task (optional, helps catch misalignment)
+
+## Outputs
+
+Review written to `scratch/review_<branch>.md` with:
+
+```
+## Review: <branch or scope>
+### Critical (must fix before commit)
+- [file:line] description of issue
+
+### Warning (should fix)
+- [file:line] description of issue
+
+### Nit (optional improvement)
+- [file:line] description
+
+### Verdict: APPROVE / NEEDS CHANGES
+```
+
+Returns path + ≤5 line summary to main context.
+
+## Context Budget
+
+≤20% of available window.
+
+## Rules
+
+- Read the actual diff — don't review based on assumptions about what changed.
+- Focus on correctness and security first, style second.
+- Don't flag style issues that a linter would catch — let the linter handle those.
+- Every critical finding must include: what's wrong, why it matters, and how to fix it.
+- If unsure whether something is a bug, flag it as a warning with your reasoning.
+- Check for common vulnerability patterns:
+  - SQL injection (string concatenation in queries)
+  - Command injection (user input in shell commands)
+  - XSS (unescaped user content in HTML)
+  - Path traversal (unsanitized file paths)
+  - Hardcoded secrets (API keys, passwords, tokens)
+- Verify that new code paths have corresponding tests.
+- Don't block on nitpicks — reserve "NEEDS CHANGES" for critical and warning-level issues.
+- If the change is a one-line fix with no security implications, keep the review brief.
+
+## Four Questions Validation
+
+After reviewing code, verify the change with evidence — not assumptions:
+
+1. **Are tests passing?** — Show actual test output. "Tests pass" without output is a red flag.
+2. **Are requirements met?** — List each requirement and confirm it's addressed in the diff.
+3. **Are assumptions verified?** — Cite documentation, existing code, or specs. Don't assume APIs, configs, or behaviors.
+4. **Is there evidence?** — Provide concrete results (test output, build logs, diff excerpts). Claims without evidence must be flagged.
+
+### Hallucination Red Flags
+
+Flag the review if you observe any of these in the code or its description:
+
+- Claiming "tests pass" without showing test output
+- "Probably works" or "should be fine" language without verification
+- Referencing APIs, configs, or behaviors that weren't checked against actual source
+- Fabricated identifiers (made-up function names, non-existent modules, invented error codes)
+- Confidence in code paths that weren't actually traced through
+- Assuming backwards compatibility without checking callers
+- "No side effects" claims without checking for shared state, globals, or event listeners
+_EMBED_EOF_4
+
+  cat > "$PROJECT_DIR/agents/code-simplifier-agent.md" <<'_EMBED_EOF_5'
+# Agent: Code Simplifier
+
+## Purpose
+
+Analyze code for unnecessary complexity and recommend simplifications. Enforces the "elegance" principle (CLAUDE.md Section 4.6) — finding the simplest solution that doesn't create future burden. This is the "is there a simpler way?" agent.
+
+## When to Use
+
+- After implementing a feature — pause and ask "is there a more elegant way?"
+- During code review when something feels over-engineered
+- Periodic codebase health checks
+- When a module has grown unwieldy
+- Triggered via `/simplify [path]`
+
+## Inputs
+
+- File path(s) or directory to analyze
+- Context on what the code does (optional — agent will infer from reading)
+- Specific concern (optional — e.g., "this function feels too complex")
+
+## Outputs
+
+Report written to `scratch/simplify_<scope>.md` with:
+
+```
+## Simplification Report: <scope>
+
+### High Impact (significant complexity reduction)
+- [file:line] What to simplify. Why it's complex. Suggested approach. ~X lines removed.
+
+### Medium Impact
+- [file:line] Description.
+
+### Low Impact / Nitpicks
+- [file:line] Description.
+
+### Summary
+- Opportunities found: N
+- Estimated net line reduction: X
+- Recommendation: act now / defer / skip
+```
+
+Returns path + ≤5 line summary to main context.
+
+## Context Budget
+
+≤25% of available window.
+
+## Complexity Signals
+
+Look for these patterns:
+
+1. **Premature abstractions** — Wrappers, helpers, or utilities used only once. Three similar lines are better than a premature abstraction.
+2. **Over-engineering** — Feature flags nobody toggles, backwards-compatibility shims for removed code, configurability that isn't configured.
+3. **Dead code** — Unused imports, unreachable branches, commented-out blocks, TODO comments older than the current task.
+4. **Unnecessary indirection** — Layers that just pass through, factories that build one thing, interfaces with one implementation.
+5. **Complex conditionals** — Deeply nested if/else (>3 levels), long boolean chains, switches with fallthrough.
+6. **God functions/classes** — Functions >50 lines, classes with >10 methods, files with >500 lines.
+7. **Duplicated logic** — Copy-paste code appearing 3+ times (don't flag 2 occurrences — premature DRY is its own complexity).
+
+## Rules
+
+- **Don't suggest changes that would break existing tests.** If tests would need updating, note it.
+- **Don't remove code that handles real edge cases** — only remove genuinely dead paths.
+- **Don't optimize for fewer characters** — optimize for clarity and maintainability.
+- **Simplicity ≠ cleverness.** A clear 10-line function beats a clever 3-line one-liner.
+- **Present options, don't apply changes.** The developer decides what to simplify.
+- **Respect existing patterns.** If the codebase uses a pattern consistently, don't flag it as unnecessary complexity — flag the pattern itself if it's genuinely problematic.
+- **Consider the change cost.** A simplification that requires touching 20 files is not simple. Factor in the blast radius.
+- **Don't flag test code for complexity** unless it's actively making tests harder to maintain.
+_EMBED_EOF_5
+
+  cat > "$PROJECT_DIR/agents/plan-agent.md" <<'_EMBED_EOF_6'
+# Agent: Plan
+
+## Purpose
+
+Break down complex tasks into ordered, checkpointed implementation plans. Transforms vague requirements into concrete, actionable steps with risk assessment and dependency mapping.
+
+## When to Use
+
+- Tasks with 5+ steps
+- Unclear scope or multiple possible approaches
+- Architectural decisions that need to be made before implementation
+- Triggered via `/plan <task description>`
+
+## Inputs
+
+- Task description (what needs to be accomplished)
+- Relevant file paths (where the work will happen)
+- Constraints (time, dependencies, backward compatibility, etc.)
+- Current state of `tasks/todo.md` (to avoid duplicating existing plans)
+
+## Outputs
+
+Written plan in `tasks/todo.md` with:
+- **Objective**: one-sentence summary
+- **Numbered steps** with checkboxes (`- [ ]`)
+- **Complexity estimate** per step (trivial / moderate / complex)
+- **Checkpoints** for tasks >5 steps (explicit user check-in points)
+- **Risks and dependencies** — what could block progress
+- **Decisions & context** — architectural tradeoffs and rationale
+
+Returns a ≤10 line summary to the main context.
+
+## Context Budget
+
+≤30% of available window.
+
+## Rules
+
+- Read relevant code before planning — never plan in a vacuum.
+- Reference `tasks/lessons.md` for patterns relevant to the current task.
+- Plans must be concrete enough that another developer (or agent) could follow them without asking clarifying questions.
+- Don't start implementing — the plan must be approved before any code is written.
+- If a task is under 3 steps, skip planning and recommend direct execution.
+- For tasks >7 steps, include at least 2 checkpoints.
+- Flag any step that touches auth, payments, migrations, or production config as requiring explicit approval.
+
+## Example Output
+
+```markdown
+## Objective
+Add rate limiting to the API gateway.
+
+## Plan
+- [ ] 1. Research existing middleware patterns (moderate)
+- [ ] 2. Add rate limiter dependency to pyproject.toml (trivial)
+- [ ] **Checkpoint**: Verify dependency installs and is compatible.
+- [ ] 3. Implement rate limit middleware (moderate)
+- [ ] 4. Add configuration to .env.example (trivial)
+- [ ] 5. Write unit tests for rate limiter (moderate)
+- [ ] 6. Write integration test with API endpoints (moderate)
+- [ ] **Checkpoint**: All tests pass locally.
+- [ ] 7. Update README with rate limit documentation (trivial)
+
+## Risks
+- Rate limiter choice affects Redis dependency (step 1 decision)
+- Must not break existing API tests
+```
+_EMBED_EOF_6
+
+  cat > "$PROJECT_DIR/agents/research-agent.md" <<'_EMBED_EOF_7'
+# Agent: Research
+
+## Purpose
+
+Deep-dive investigation — reading docs, exploring APIs, analyzing codebases, evaluating libraries, and gathering technical context. Produces written summaries that inform implementation decisions.
+
+## When to Use
+
+- Need to understand unfamiliar code before modifying it
+- Evaluating a library, framework, or tool for adoption
+- Investigating a bug with unclear root cause
+- Gathering context on an API, protocol, or standard
+- CVE or security vulnerability assessment
+
+## Inputs
+
+- Research question (specific and scoped)
+- Relevant file paths or URLs to start from
+- What decisions depend on findings (so research stays focused)
+- Time/scope constraints (if any)
+
+## Outputs
+
+Summary written to `scratch/research_<topic>.md` with:
+- **Key findings** — bullet points, most important first
+- **Recommendations** — what to do based on findings
+- **Sources** — where information came from (file paths, URLs, docs)
+- **Open questions** — what couldn't be determined and needs user input
+
+Returns path + ≤10 line summary to main context.
+
+## Context Budget
+
+≤40% of available window (research is read-heavy).
+
+## Rules
+
+- Stay focused on the research question — don't rabbit-hole into tangents.
+- Cite sources for all factual claims. If something can't be verified, flag it as uncertain.
+- Never fabricate information. If you can't find an answer, say so explicitly.
+- Compare alternatives when evaluating options — don't just describe one path.
+- Include tradeoffs and downsides, not just benefits.
+- If research reveals a security concern, flag it immediately — don't bury it in the summary.
+- Recommend a clear course of action, not just raw information.
+- If the research question is too broad, narrow it and document what was scoped out.
+
+## Example Summary
+
+```
+Findings written to scratch/research_rate_limiting.md
+
+Summary:
+- Three viable options: redis-based (best for distributed), in-memory (simplest), token bucket (most flexible)
+- Recommendation: in-memory for MVP, migrate to redis when scaling past single instance
+- Key risk: in-memory state lost on restart — acceptable for MVP, not for production
+- Open question: expected request volume needed to size the limiter correctly
+```
+_EMBED_EOF_7
+
+  cat > "$PROJECT_DIR/agents/test-runner-agent.md" <<'_EMBED_EOF_8'
+# Agent: Test Runner
+
+## Purpose
+
+Run tests, interpret results, and propose fixes for failures. Handles the full test lifecycle from execution through analysis to actionable fix recommendations.
+
+## When to Use
+
+- After implementation, before commit
+- Investigating CI failures
+- Verifying a bug fix resolves the issue
+- Triggered via `/test [tier]`
+- Called by the Verify Agent as part of the pre-merge pipeline
+
+## Inputs
+
+- Test command(s) to run (or "all" for full suite)
+- Expected behavior (what should pass, what might fail)
+- Relevant file paths (code under test, test files)
+
+## Outputs
+
+Results written to `scratch/test_results_<timestamp>.md` with:
+- **Pass/fail counts** per tier (unit / integration / agent)
+- **Failure details**: test name, error message, stack trace excerpt, relevant code
+- **Root cause analysis** for each failure
+- **Proposed fixes** if the cause is identifiable
+
+Returns path + ≤5 line summary to main context.
+
+## Context Budget
+
+≤25% of available window.
+
+## Rules
+
+- Run tests in tier order: unit → integration → agent. Stop at first tier with failures (fail-fast).
+- Use `make test-unit`, `make test-integration`, `make test-agent` — respect the project's Makefile.
+- For single-file testing: `make test-file FILE=<path>`.
+- Read the failing test code AND the code under test before proposing a fix.
+- Distinguish between:
+  - **Test bugs** (test is wrong) — fix the test
+  - **Code bugs** (implementation is wrong) — fix the code
+  - **Environment issues** (missing dependency, wrong config) — fix the environment
+- Don't apply fixes automatically — propose them for approval.
+- If a test is flaky (passes sometimes, fails others): flag it for quarantine, don't normalize it.
+- Track test count changes — if tests were added or removed, note it.
+- Never mark a test as "expected failure" — either fix it or quarantine it.
+_EMBED_EOF_8
+
+  cat > "$PROJECT_DIR/agents/verify-agent.md" <<'_EMBED_EOF_9'
+# Agent: Verify
+
+## Purpose
+
+Full pre-merge validation pipeline. Orchestrates build validation, testing, linting, and code review into a single "is this ready to merge?" check. This is the final gate before a PR is created or a branch is pushed.
+
+## When to Use
+
+- Before creating a pull request
+- Before pushing a branch that will trigger CI
+- As a final check after completing all planned work
+- When the user asks "is this ready?"
+
+## Inputs
+
+- Branch name (defaults to current branch)
+- Base branch for comparison (defaults to main)
+- Scope: "full" (everything) or "quick" (build + unit tests only)
+
+## Outputs
+
+Report written to `scratch/verify_<branch>.md` with:
+
+```
+## Pre-Merge Verification: <branch>
+
+### 1. Build Validation
+- Compilation: PASS / FAIL
+- Type checking: PASS / FAIL / SKIPPED
+- Linting: PASS / FAIL (X errors, Y warnings)
+
+### 2. Test Suite
+- Unit tests: PASS (X/X) / FAIL (X/Y)
+- Integration tests: PASS (X/X) / FAIL (X/Y)
+- Agent behavior tests: PASS (X/X) / FAIL (X/Y)
+
+### 3. Code Review
+- Critical issues: N
+- Warnings: N
+- Nits: N
+
+### 4. Change Summary
+- Files changed: N
+- Lines added: +X
+- Lines removed: -Y
+- Commits: N
+
+### Verdict: READY TO MERGE / NOT READY
+Blocking issues:
+- [list of items that must be fixed]
+
+Recommendations (non-blocking):
+- [list of suggested improvements]
+```
+
+Returns ≤5 line summary to main context.
+
+## Context Budget
+
+≤30% of available window (orchestrates other agents, but summarizes their output).
+
+## Pipeline Order
+
+The verify agent runs checks in this order, stopping at the first blocking failure:
+
+1. **Build Validator** — Does it compile and pass linting?
+2. **Test Runner** — Do all test tiers pass? (fail-fast: unit → integration → agent)
+3. **Code Review** — Any critical issues in the diff?
+4. **Change summary** — Git stats for the branch vs. base.
+
+## Rules
+
+- **Fail-fast**: If build validation fails, don't bother running tests. If tests fail, still run code review (reviewers should see all issues at once).
+- **Never report READY TO MERGE if any check fails.** Not even if "it's just a lint warning."
+- **Distinguish blocking vs. non-blocking.** Failures and critical review findings block. Warnings and nits are recommendations.
+- **Check for common merge hazards**:
+  - Uncommitted changes (should be staged/committed first)
+  - Merge conflicts with base branch
+  - `.env` files or secrets in the diff
+  - Large binary files accidentally staged
+  - Missing test coverage for new code paths
+- **Run against the full diff** (`main...HEAD`), not just the latest commit.
+- **Don't fix issues** — report them. The developer decides what to address.
+- **If all checks pass**: congratulate briefly and suggest creating the PR.
+- **Quick mode**: Only runs build validation + unit tests. Use for fast iteration during development.
+_EMBED_EOF_9
+
+  success "Agent specifications generated (agents/)"
+}
+
+# ---------------------------------------------------------------------------
+# Generate: Claude slash command skills (embedded — no template dependency)
+# ---------------------------------------------------------------------------
+generate_skills() {
+  if [[ -d "$PROJECT_DIR/.claude/skills/start" ]]; then
+    info ".claude/skills/ already exists — skipping"
+    return
+  fi
+  info "Generating Claude slash commands..."
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/backlog"
+  cat > "$PROJECT_DIR/.claude/skills/backlog/SKILL.md" <<'_EMBED_EOF_10'
+---
+name: backlog
+description: Manage GitHub issues backlog — view, pick, or create work items
+argument-hint: "[show|new|pick #N|close #N]"
+user-invocable: true
+allowed-tools: "Read, Write, Edit, Bash(gh *), Bash(git checkout*), Bash(git branch*), Bash(git status*)"
+---
+
+Manage the GitHub issues backlog. Bridge between GitHub Issues and local task management.
+
+## Commands
+
+Parse `$ARGUMENTS` to determine the action:
+
+### `show` (default — when no argument or `show`)
+
+1. Run `gh issue list --state open --limit 20` to get open issues.
+2. Group by priority label (`P0-critical`, `P1-high`, `P2-medium`, `P3-low`, unlabeled).
+3. Present a summary:
+
+```
+## Open Issues
+
+### P0 — Critical
+- #12 Fix auth token expiration (bug, in-progress)
+
+### P1 — High
+- #8 Add rate limiting to API (feature, ready)
+- #11 Database migration fails on empty tables (bug, ready)
+
+### P2 — Medium
+- #3 Refactor config loader (refactor, needs-triage)
+
+### Unprioritized
+- #14 Update README examples (task)
+
+**Total**: 5 open issues
+```
+
+### `new`
+
+Create a new GitHub issue interactively:
+
+1. Ask the user for:
+   - **Title** (required)
+   - **Type** — bug, feature, task, chore, or refactor (maps to label)
+   - **Priority** — P0-P3 (maps to label)
+   - **Description** (required)
+   - **Acceptance criteria** (optional)
+2. Create with `gh issue create --title "..." --body "..." --label "type,priority,needs-triage"`
+3. Report the issue URL.
+
+### `pick #N`
+
+Start working on issue #N:
+
+1. Run `gh issue view N` to get the issue details.
+2. Create a branch: `git checkout -b <type>/<N>-<short-title>` (derive type from label, slugify the title).
+3. Add `in-progress` label, remove `ready` label: `gh issue edit N --add-label "in-progress" --remove-label "ready"`
+4. Write the issue description and acceptance criteria into `tasks/todo.md` as a plan.
+5. Present the plan and ask the user to confirm before starting implementation.
+
+### `close #N`
+
+Close issue #N:
+
+1. Run `gh issue view N` to get context.
+2. Ask the user for a brief summary of what was done.
+3. Add a closing comment with the summary: `gh issue comment N --body "..."`
+4. Close the issue: `gh issue close N --reason completed`
+5. Remove `in-progress` label if present.
+
+## Rules
+
+- Always show issue numbers so the user can reference them.
+- If `gh` is not available or not authenticated, say so and suggest `gh auth login`.
+- For `pick`, always verify there are no uncommitted changes before creating a branch.
+- For `pick`, use the branch naming convention: `<type>/<issue-number>-<short-slug>` (e.g., `feat/8-rate-limiting`, `fix/12-auth-token`).
+- Keep `tasks/todo.md` as the working plan — issues are the backlog, todo.md is the active session plan.
+_EMBED_EOF_10
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/checkpoint"
+  cat > "$PROJECT_DIR/.claude/skills/checkpoint/SKILL.md" <<'_EMBED_EOF_11'
+---
+name: checkpoint
+description: Summarize current progress, commit working state, and update task tracking
+argument-hint: "[commit message or empty for auto-generated]"
+user-invocable: true
+allowed-tools: "Read, Edit, Bash(git status*), Bash(git diff*), Bash(git add *), Bash(git commit *), Bash(git log*)"
+---
+
+Create a checkpoint: summarize progress, commit the current working state, and update task tracking.
+
+## Process
+
+1. **Check state** — Run `git status` and `git diff --stat` to see what's changed.
+2. **Update tasks/todo.md** — Mark completed items, note any blockers or in-progress work.
+3. **Stage changes** — Add modified files (be specific, don't use `git add -A`).
+4. **Commit** — Use the provided message or auto-generate one from the changes:
+   - Follow conventional commits: `type(scope): description`
+   - Types: feat, fix, refactor, chore, docs, test
+5. **Report** — Summarize what was committed and what remains.
+
+## Rules
+
+- Never stage `.env` files, credentials, or secrets.
+- Never commit files that would fail linting — run `make lint` first if unsure.
+- If there are no changes to commit, say so — don't create empty commits.
+- If `$ARGUMENTS` is provided, use it as the commit message.
+- Always end the commit message with: `Co-Authored-By: Claude <noreply@anthropic.com>`
+_EMBED_EOF_11
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/doctor"
+  cat > "$PROJECT_DIR/.claude/skills/doctor/SKILL.md" <<'_EMBED_EOF_12'
+---
+name: doctor
+description: Check project health — environment, dependencies, tools, and configuration
+argument-hint: ""
+user-invocable: true
+allowed-tools: "Read, Bash(python *), Bash(node *), Bash(npm *), Bash(go *), Bash(cargo *), Bash(make *), Bash(git *), Bash(gh *), Bash(which *), Bash(pip *), Bash(pre-commit *)"
+---
+
+Run a health check on the project environment. Report what's working and what needs attention.
+
+## Instructions
+
+Run each check below and report results using this format:
+
+```
+## Project Health Check
+
+| Check | Status | Details |
+|-------|--------|---------|
+| Git repo | ✅ | On branch main, 12 commits |
+| Language env | ⚠️ | Python 3.12 found, but no .venv active |
+| Dependencies | ❌ | Not installed — run `pip install -e '.[dev]'` |
+| ...  | ... | ... |
+```
+
+### Checks to Run
+
+#### 1. Git
+- Is this a git repo? (`git rev-parse --is-inside-work-tree`)
+- Current branch and commit count
+- Any uncommitted changes? (`git status --porcelain`)
+- Is a remote configured? (`git remote -v`)
+
+#### 2. Language Environment
+Detect language from config files (pyproject.toml, package.json, go.mod, Cargo.toml):
+
+- **Python**: Is Python installed? What version? Is a virtual environment active? (`$VIRTUAL_ENV`)
+- **TypeScript**: Is Node.js installed? What version? Is `node_modules/` present?
+- **Go**: Is Go installed? What version?
+- **Rust**: Is Rust installed? What version? (`rustc --version`)
+
+#### 3. Dependencies
+- Are project dependencies installed?
+  - Python: `pip list` shows project package
+  - TypeScript: `node_modules/` exists and `package-lock.json` matches
+  - Go: `go.sum` exists
+  - Rust: `Cargo.lock` exists
+
+#### 4. Development Tools
+- Linter available? (ruff, eslint, golangci-lint, clippy)
+- Formatter available? (ruff, eslint, gofmt, rustfmt)
+- Type checker available? (mypy, tsc, built-in)
+- `make` available?
+- `pre-commit` installed? Hooks active? (`pre-commit --version`, `.git/hooks/pre-commit`)
+
+#### 5. Claude Code
+- `.claude/settings.json` exists?
+- `.claude/skills/` directory has skills?
+- `CLAUDE.md` exists?
+- `tasks/todo.md` exists?
+
+#### 6. GitHub Integration
+- `gh` CLI installed? (`which gh`)
+- `gh` authenticated? (`gh auth status`)
+- Issue labels created? (check with `gh label list` if authenticated)
+
+#### 7. Tests
+- Does `make test-unit` work? (run it, report pass/fail)
+- If it fails, show the error summary (not full output)
+
+### After the Check
+
+1. Summarize: "X of Y checks passed"
+2. For any failures, show the exact command to fix it
+3. If everything passes: "Project is healthy — ready to build."
+
+## Rules
+
+- Run checks quickly — skip anything that would take >10 seconds
+- Don't install anything automatically — just report what's missing and how to fix it
+- If `make test-unit` has no tests yet, report as ⚠️ (warning), not ❌ (failure)
+- Group related issues together (e.g., "venv not active" and "deps not installed" are the same root cause)
+_EMBED_EOF_12
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/index"
+  cat > "$PROJECT_DIR/.claude/skills/index/SKILL.md" <<'_EMBED_EOF_13'
+---
+name: index
+description: Generate or update a PROJECT_INDEX.md for fast session orientation
+argument-hint: "[update]"
+user-invocable: true
+allowed-tools: "Read, Glob, Grep, Bash(wc *), Bash(git log*), Bash(git rev-parse*), Bash(git remote*)"
+---
+
+Generate a `PROJECT_INDEX.md` at the project root that maps the entire codebase for fast session orientation. This eliminates the need for Claude to rediscover project structure each session.
+
+## When to Run
+
+- At project start (after initial setup)
+- After significant structural changes (new modules, renamed directories, added dependencies)
+- If `$ARGUMENTS` is "update": refresh the existing index rather than regenerating from scratch
+
+## What to Capture
+
+Scan the project and build a structured index covering:
+
+### 1. Project Overview
+- Project name and description (from README.md or CLAUDE.md)
+- Language/framework (detect from config files: pyproject.toml, package.json, go.mod, Cargo.toml)
+- Last indexed date
+
+### 2. Directory Structure
+- ASCII tree of the top-level layout (2 levels deep max)
+- Purpose annotation for each major directory
+
+### 3. Entry Points
+- Main executable / entry point files
+- CLI commands (if any)
+- API routes or server startup (if applicable)
+
+### 4. Core Modules
+For each significant module/package:
+- **Path**: where it lives
+- **Purpose**: one-line description
+- **Key exports**: main functions, classes, or types
+- **Dependencies**: what it imports from other modules
+
+### 5. Configuration Files
+- List all config files with their purpose (linter, formatter, build, CI, etc.)
+
+### 6. Test Commands
+- How to run tests (from Makefile or package scripts)
+- Test file locations
+- Coverage status (if known from tasks/tests.md)
+
+### 7. Dependencies
+- Core dependencies (from lock files or config)
+- Dev dependencies
+
+### 8. Key Decisions
+- Link to tasks/todo.md for architectural decisions
+- Link to tasks/lessons.md for accumulated knowledge
+
+## Output Format
+
+Write to `PROJECT_INDEX.md` at the project root:
+
+```markdown
+# Project Index — {project name}
+
+> Auto-generated by /index. Last updated: {date}
+> Read this file at session start for fast project orientation.
+
+## Overview
+{language} project — {description}
+
+## Structure
+{ascii tree}
+
+## Entry Points
+{entry points}
+
+## Modules
+{module table}
+
+## Configuration
+{config files table}
+
+## How to Run
+| Command | What It Does |
+|---------|-------------|
+| ... | ... |
+
+## Dependencies
+{dependency list}
+
+## Key References
+- Plan: tasks/todo.md
+- Lessons: tasks/lessons.md
+- Tests: tasks/tests.md
+```
+
+## Rules
+
+- Keep the index concise — this is a map, not documentation. One line per module, not paragraphs.
+- Don't include file contents — just paths, purposes, and relationships.
+- Skip generated files, build artifacts, and node_modules/venv/target directories.
+- If the project is small (<20 files), keep the index to under 100 lines.
+- If the project is large (>100 files), focus on the top-level architecture and key modules — don't index every file.
+- Update `tasks/tests.md` coverage summary if test structure has changed.
+_EMBED_EOF_13
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/lesson"
+  cat > "$PROJECT_DIR/.claude/skills/lesson/SKILL.md" <<'_EMBED_EOF_14'
+---
+name: lesson
+description: Record a lesson learned in tasks/lessons.md — mistakes, positive patterns, troubleshooting, or insights
+argument-hint: "<what happened and the takeaway>"
+user-invocable: true
+allowed-tools: "Read, Edit"
+---
+
+Add a new entry to the appropriate section of `tasks/lessons.md`.
+
+## Instructions
+
+1. Read the current `tasks/lessons.md` to understand the existing format and entries.
+2. Determine which section the entry belongs in:
+
+   **Mistakes & Corrections** — Something went wrong, capture the preventive rule:
+   ```
+   Pattern: [short description]
+   Tags: [tag1, tag2]
+   Mistake: [what went wrong]
+   Rule: [preventive instruction — negative, clear]
+   Added: [YYYY-MM-DD]
+   ```
+
+   **What Works (Positive Patterns)** — Something worked well, capture what to repeat:
+   ```
+   Pattern: [short description]
+   Tags: [tag1, tag2]
+   Context: [when/where this was effective]
+   Why: [why it works]
+   Added: [YYYY-MM-DD]
+   ```
+
+   **Troubleshooting** — A recurring issue with a known fix:
+   ```
+   Symptom: [what you observe]
+   Tags: [tag1, tag2]
+   Cause: [root cause]
+   Solution: [how to fix it]
+   Added: [YYYY-MM-DD]
+   ```
+
+   **Project Insights** — A discovery about the project's architecture or domain:
+   ```
+   Insight: [what was discovered]
+   Tags: [tag1, tag2]
+   Impact: [how this affects decisions]
+   Added: [YYYY-MM-DD]
+   ```
+
+3. If `$ARGUMENTS` is provided, use it as context for the entry.
+4. If `$ARGUMENTS` is empty, ask what happened and determine the right category.
+
+## Rules
+
+- Write rules that ruthlessly prevent recurrence (for mistakes).
+- Be specific enough that a future session can understand and apply the entry without additional context.
+- Tags should be short, lowercase, and match the tag reference table.
+- Don't duplicate — check if a similar entry already exists before adding.
+- Positive patterns are just as valuable as mistakes. Capture what works.
+_EMBED_EOF_14
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/load"
+  cat > "$PROJECT_DIR/.claude/skills/load/SKILL.md" <<'_EMBED_EOF_15'
+---
+name: load
+description: Restore session context from tasks/session.md and orient for resumed work
+argument-hint: ""
+user-invocable: true
+allowed-tools: "Read, Glob, Grep, Bash(git status*), Bash(git branch*), Bash(git log*), Bash(git diff --stat*)"
+---
+
+Restore context from a previous session and orient for resumed work.
+
+## Instructions
+
+Read the following files in this order (use Wave-Checkpoint-Wave — read in parallel, then synthesize):
+
+### Wave 1: Read all context files in parallel
+1. `tasks/session.md` — what was being worked on, decisions made, next steps
+2. `tasks/todo.md` — current plan and progress
+3. `tasks/lessons.md` — recent entries (last 3-5 relevant to current task)
+4. `tasks/tests.md` — coverage gaps and recent changes
+5. `PROJECT_INDEX.md` — project structure and entry points (if it exists)
+
+### Checkpoint: Synthesize and orient
+After reading, present a concise session resume to the user:
+
+```
+## Session Restored
+
+**Last session**: [date] on branch `[branch]`
+**Current focus**: [what was being worked on]
+**Progress**: [what was completed]
+**Next steps**:
+1. [first priority]
+2. [second priority]
+3. [third priority]
+
+**Open questions from last session**:
+- [any unresolved items]
+
+**Active files**: [list of files in play]
+```
+
+### Wave 2: Verify current state
+1. Run `git status` — check for uncommitted changes
+2. Run `git branch` — confirm branch
+3. Run `git log --oneline -5` — recent commits
+
+Report any discrepancies between the session state and actual git state (e.g., branch changed, uncommitted work not mentioned in session.md).
+
+## Rules
+
+- If `tasks/session.md` doesn't exist or is empty, say so and offer to run `/index` and `/status` instead.
+- If `PROJECT_INDEX.md` doesn't exist, note it and suggest running `/index`.
+- Don't start implementing immediately — present the resume and let the user confirm the direction.
+- Keep the resume under 20 lines. Reference file paths for details, don't dump contents.
+- Check `tasks/lessons.md` for entries tagged with the current task's domain — mention any relevant ones.
+_EMBED_EOF_15
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/plan"
+  cat > "$PROJECT_DIR/.claude/skills/plan/SKILL.md" <<'_EMBED_EOF_16'
+---
+name: plan
+description: Create a structured implementation plan in tasks/todo.md with confidence assessment
+argument-hint: "<task description>"
+user-invocable: true
+allowed-tools: "Read, Write, Edit, Glob, Grep"
+---
+
+Create a structured implementation plan for the following task: $ARGUMENTS
+
+## Instructions
+
+1. **Explore first** — Read relevant files and understand the current codebase state before planning.
+2. **Assess confidence** — Before writing the plan, run a confidence check (see below).
+3. **Write the plan** to `tasks/todo.md` using this structure:
+   - Objective (one sentence)
+   - Confidence score and assessment summary
+   - Numbered steps with checkboxes (`- [ ]`)
+   - Checkpoints for tasks >5 steps (explicit user check-in points)
+   - Decisions & context section for architectural tradeoffs
+4. **Assess complexity** — Note estimated effort per step (trivial/moderate/complex).
+5. **Identify risks** — What could go wrong? What depends on external factors?
+6. **Present a summary** inline — don't make the user read the whole file.
+
+## Confidence Check
+
+Before planning, score your confidence (0.0 - 1.0) across these five dimensions:
+
+| Check | Weight | Question |
+|-------|--------|----------|
+| **No duplicates** | 25% | Has this already been built? Search the codebase for existing implementations. |
+| **Architecture fit** | 25% | Does this align with the project's existing patterns and structure? |
+| **Requirements clear** | 20% | Are the requirements specific enough to implement without guessing? |
+| **Approach verified** | 15% | Is the technical approach backed by documentation or working references? |
+| **Root cause known** | 15% | (For bug fixes) Is the root cause identified, not just symptoms? |
+
+**Thresholds**:
+- **>= 0.9** — Proceed with planning and implementation.
+- **0.7 - 0.89** — Plan, but flag uncertainties. Present alternative approaches. Get explicit approval before implementing.
+- **< 0.7** — Stop. List what's unclear. Ask targeted questions before planning further.
+
+Include the confidence score and a one-line assessment in the plan header:
+```
+> Confidence: 0.85 — Architecture fit clear, but API behavior needs verification.
+```
+
+## Milestone Prompt
+
+After writing the plan, if the plan has 2+ checkpoints, ask the user:
+
+> "This plan has [N] checkpoints. Would you like to create GitHub milestones for them?"
+
+If yes:
+1. Create milestones via `gh api repos/{owner}/{repo}/milestones` for each checkpoint.
+2. If issues exist for the work items, assign them to the appropriate milestone.
+3. Note the milestone names in `tasks/todo.md` next to each checkpoint.
+
+If `gh` is not available or the user declines, skip silently.
+
+## Rules
+
+- Tasks under 3 steps: skip the plan, just execute. Still run the confidence check mentally.
+- Tasks with 3+ steps: write the plan, present summary, wait for approval.
+- Reference `tasks/lessons.md` for relevant prior learnings.
+- Never start implementing before the plan is approved.
+- If confidence is below 0.7, do NOT write a full plan — write questions instead.
+_EMBED_EOF_16
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/refactor"
+  cat > "$PROJECT_DIR/.claude/skills/refactor/SKILL.md" <<'_EMBED_EOF_17'
+---
+name: refactor
+description: Guided refactoring with before/after validation
+argument-hint: "<file path, module, or pattern>"
+user-invocable: true
+allowed-tools: "Read, Grep, Glob, Edit, Bash(make test*), Bash(git diff*), Bash(git stash*)"
+context: fork
+agent: general-purpose
+---
+
+Perform a guided refactoring of the specified code with validation at each step.
+
+## Scope
+
+- If `$ARGUMENTS` is a file: refactor that specific file.
+- If `$ARGUMENTS` is a module/directory: analyze and refactor across the module.
+- If `$ARGUMENTS` is empty: analyze recently changed files (`git diff --name-only main...HEAD`).
+
+## Workflow
+
+### 1. Analyze
+- Read the target code and identify refactoring opportunities.
+- Categorize: extract function, rename, simplify conditional, reduce duplication, improve types, restructure module.
+- Estimate risk level for each change (low/medium/high).
+
+### 2. Baseline
+- Run `make test` (or appropriate test command) to establish a passing baseline.
+- If tests fail before refactoring, stop and report — don't refactor broken code.
+- Record the baseline state: `git stash` or note current diff.
+
+### 3. Plan
+Present the refactoring plan to the user:
+
+```
+## Refactoring Plan: <target>
+
+| # | Change | Risk | Files |
+|---|--------|------|-------|
+| 1 | Description | low | file.py:20-35 |
+| 2 | Description | medium | file.py:50-80 |
+
+Estimated complexity reduction: X → Y (metric)
+```
+
+Wait for approval before proceeding.
+
+### 4. Apply
+- Apply changes **one at a time**, smallest and safest first.
+- After each change: run tests immediately.
+- If tests fail: revert that change, report the failure, and continue with remaining changes.
+- Never apply the next change until the current one passes tests.
+
+### 5. Report
+Write results to `scratch/refactor_latest.md`:
+
+```
+## Refactoring Report: <target>
+
+### Applied
+- [x] Change 1 — description (tests pass)
+- [x] Change 2 — description (tests pass)
+
+### Skipped
+- [ ] Change 3 — reason (tests failed / user declined)
+
+### Before/After
+- Lines: X → Y
+- Complexity: before → after
+- Tests: all passing
+```
+
+Return a ≤5 line summary to the main context.
+
+## Rules
+
+- **Never break tests.** If a change causes failures, revert it immediately.
+- **One change at a time.** Don't batch multiple refactors into one edit.
+- **Preserve behavior.** Refactoring changes structure, not functionality.
+- **No scope creep.** Don't add features, fix bugs, or change behavior during refactoring.
+- **Ask before high-risk changes.** Anything touching public APIs, shared interfaces, or core logic needs explicit approval.
+_EMBED_EOF_17
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/review"
+  cat > "$PROJECT_DIR/.claude/skills/review/SKILL.md" <<'_EMBED_EOF_18'
+---
+name: review
+description: Review current code changes for bugs, style issues, and security concerns
+argument-hint: "[file path or 'staged' or 'branch']"
+user-invocable: true
+allowed-tools: "Read, Grep, Glob, Bash(git diff*), Bash(git status*), Bash(git log*)"
+context: fork
+agent: general-purpose
+---
+
+Review the current code changes for bugs, style issues, security concerns, and missed edge cases.
+
+## Scope
+
+- If `$ARGUMENTS` is empty: review all staged changes (`git diff --cached`) and unstaged changes (`git diff`).
+- If `$ARGUMENTS` is a file path: review only that file's changes.
+- If `$ARGUMENTS` is "branch": review all changes on the current branch vs. main (`git diff main...HEAD`).
+
+## Review Checklist
+
+For each changed file, evaluate:
+
+1. **Correctness** — Does the logic do what it claims? Are there off-by-one errors, null checks, or missing edge cases?
+2. **Security** — SQL injection, command injection, XSS, path traversal, hardcoded secrets, OWASP top 10.
+3. **Performance** — Unnecessary loops, N+1 queries, missing indexes, large allocations in hot paths.
+4. **Style** — Naming conventions, code organization, consistency with existing patterns.
+5. **Tests** — Are new code paths covered? Are edge cases tested? Would a regression test catch this bug?
+
+## Output Format
+
+Write findings to `scratch/review_latest.md` with this structure:
+
+```
+## Review: <branch or file>
+
+### Critical (must fix)
+- [file:line] description
+
+### Warning (should fix)
+- [file:line] description
+
+### Nit (optional)
+- [file:line] description
+
+### Verdict: APPROVE / NEEDS CHANGES
+```
+
+Return a ≤5 line summary to the main context.
+
+## Four Questions Validation
+
+After the review, verify the change against these evidence checks:
+
+1. **Are tests passing?** — Run relevant tests and show output. Never claim "tests pass" without proof.
+2. **Are requirements met?** — List each requirement from the task/ticket and confirm it's addressed.
+3. **Are assumptions verified?** — Cite docs, source code, or specs for any behavioral claims.
+4. **Is there evidence?** — Provide concrete results (test output, build logs, diff excerpts).
+
+Flag any of these red flags in your review:
+- Claims without evidence ("should work", "probably fine")
+- References to APIs or behaviors that weren't verified against source
+- Fabricated identifiers (invented function names, non-existent modules)
+- "No side effects" claims without checking callers and shared state
+_EMBED_EOF_18
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/save"
+  cat > "$PROJECT_DIR/.claude/skills/save/SKILL.md" <<'_EMBED_EOF_19'
+---
+name: save
+description: Snapshot current session state to tasks/session.md for cross-session continuity
+argument-hint: "[optional note about current focus]"
+user-invocable: true
+allowed-tools: "Read, Write, Edit, Bash(git status*), Bash(git branch*), Bash(git diff --stat*), Bash(git log*)"
+---
+
+Save the current session state to `tasks/session.md` so a future session can resume with full context.
+
+## Philosophy
+
+**Compress often, persist the essentials, look up details on demand.**
+
+The session file captures *what you need to know* to resume — not a full transcript. Pair it with:
+- `tasks/todo.md` — what the plan is
+- `tasks/lessons.md` — what was learned
+- `tasks/tests.md` — what's tested
+- `PROJECT_INDEX.md` — what exists in the codebase
+
+Together these form the "always available" context layer. The actual code is the "look up when needed" layer.
+
+## When to Save
+
+- Before ending a session
+- At natural checkpoints (feature complete, before a risky change)
+- When context window is getting large (~60% capacity)
+- Before switching to a different task
+- If `$ARGUMENTS` is provided, use it as the "Current Focus" description
+
+## What to Capture
+
+Update `tasks/session.md` with:
+
+### 1. Current Focus
+What task or feature is actively being worked on. One sentence.
+
+### 2. Progress
+What has been completed in the current work stream. Bullet list of concrete accomplishments. Reference specific files or commits where relevant.
+
+### 3. Key Decisions
+Architectural or implementation decisions made during this session. Future sessions need these to avoid re-debating settled questions.
+
+### 4. Open Questions
+Unresolved questions or uncertainties. Be specific — "does the API support batch operations?" not "some things are unclear."
+
+### 5. Active Files
+Files currently being modified or that are critical context. This tells the next session where to start reading.
+
+### 6. Next Steps
+Concrete actions to take when resuming. Ordered by priority.
+
+### 7. Session Metadata
+- Last saved: today's date + time
+- Branch: current git branch
+- Context health: estimate how much of the context window is used (light/moderate/heavy)
+
+## Rules
+
+- Overwrite the previous session state — this is a snapshot, not a log.
+- Keep it concise. Each section should be 1-5 bullet points max.
+- Reference file paths, not file contents.
+- If `tasks/todo.md` is up to date, don't duplicate progress here — just note what's changed since the last todo update.
+- Always run `git status` and `git branch` to capture accurate git state.
+- Mark items in `tasks/todo.md` as complete if they were finished during this session.
+_EMBED_EOF_19
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/simplify"
+  cat > "$PROJECT_DIR/.claude/skills/simplify/SKILL.md" <<'_EMBED_EOF_20'
+---
+name: simplify
+description: Analyze code for unnecessary complexity and suggest simplifications
+argument-hint: "<file path or directory>"
+user-invocable: true
+allowed-tools: "Read, Grep, Glob"
+context: fork
+agent: general-purpose
+---
+
+Analyze the specified code for unnecessary complexity and suggest simplifications.
+
+## Scope
+
+- If `$ARGUMENTS` is a file: analyze that specific file.
+- If `$ARGUMENTS` is a directory: scan for the most complex files and prioritize.
+- If `$ARGUMENTS` is empty: analyze recently changed files (`git diff --name-only main...HEAD`).
+
+## What to Look For
+
+1. **Premature abstractions** — Wrappers, helpers, or utilities used only once. Three similar lines are better than a premature abstraction.
+2. **Over-engineering** — Feature flags, backwards-compatibility shims, or configurability that isn't needed yet.
+3. **Dead code** — Unused imports, unreachable branches, commented-out blocks.
+4. **Unnecessary indirection** — Layers that just pass through, factories that build one thing, interfaces with one implementation.
+5. **Complex conditionals** — Deeply nested if/else, long boolean chains that could be simplified.
+6. **Duplicated logic** — Copy-paste code that should be a function (only if used 3+ times).
+
+## Output Format
+
+Write findings to `scratch/simplify_latest.md`:
+
+```
+## Simplification Report: <scope>
+
+### High Impact
+- [file:line] What to simplify and why. Estimated reduction: X lines.
+
+### Medium Impact
+- [file:line] Description.
+
+### Low Impact / Nitpicks
+- [file:line] Description.
+
+### Summary
+- Total opportunities: N
+- Estimated net line reduction: X
+- Recommendation: [act now / defer / skip]
+```
+
+Return a ≤5 line summary to the main context.
+
+## Rules
+
+- Don't suggest changes that would break existing tests.
+- Don't remove code that handles real edge cases — only remove genuinely dead paths.
+- Simplicity > cleverness. The goal is clarity, not fewer characters.
+- Present options — don't apply changes without approval.
+_EMBED_EOF_20
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/start"
+  cat > "$PROJECT_DIR/.claude/skills/start/SKILL.md" <<'_EMBED_EOF_21'
+---
+name: start
+description: Guided first-session onboarding — helps you go from zero to your first plan and issue
+argument-hint: ""
+user-invocable: true
+allowed-tools: "Read, Write, Edit, Bash(gh *), Bash(git status*), Bash(git branch*)"
+---
+
+Guide the user through their first Claude Code session. This is a one-time onboarding command.
+
+## Instructions
+
+### Step 1: Orient
+
+1. Read `CLAUDE.md` (just the project name and description from the header).
+2. Read `tasks/todo.md` to check if a plan already exists.
+3. Read `GETTING_STARTED.md` if it exists, to understand what the user was told.
+4. Greet the user briefly:
+
+```
+Welcome to <project name>! Let's get you set up.
+```
+
+### Step 2: Environment Check
+
+1. Check if the language environment is ready:
+   - Python: check for `.venv/` or active virtual environment
+   - TypeScript: check for `node_modules/`
+   - Go: check for `go.sum`
+   - Rust: check for `target/`
+2. If not set up, show the setup command from the README and offer to run it.
+3. If already set up, skip with "Environment looks good."
+
+### Step 3: What Are You Building?
+
+Ask the user:
+
+> "What do you want to build? Describe it in a sentence or two — I'll help turn it into a plan."
+
+Wait for their response.
+
+### Step 4: Create the Plan
+
+1. Take the user's description and run the `/plan` workflow:
+   - Confidence check
+   - Write structured plan to `tasks/todo.md`
+   - Present summary for approval
+2. If the plan has 3+ steps, suggest checkpoints.
+
+### Step 5: Create First Issue (Optional)
+
+After the plan is approved, ask:
+
+> "Want me to create a GitHub issue to track this? (Requires `gh` CLI)"
+
+If yes:
+1. Create an issue via `gh issue create` with the plan's objective as the title and plan steps as the body.
+2. Pick the issue with `/backlog pick` workflow (create branch, set labels).
+
+If no or `gh` unavailable: skip gracefully.
+
+### Step 6: Summary
+
+Present what was set up:
+
+```
+You're ready to go! Here's what we set up:
+- Plan: tasks/todo.md (N steps)
+- Branch: feat/N-short-description (if issue was created)
+- First task: <first unchecked item from plan>
+
+Just tell me when you're ready to start on step 1.
+```
+
+## Rules
+
+- Keep it conversational and simple — this is for first-time users.
+- Don't overwhelm with information. Introduce concepts as they become relevant.
+- If the user already has a plan in `tasks/todo.md` (not the blank template), skip to Step 3 and ask if they want to refine it or start fresh.
+- If the user says they don't know what to build yet, suggest: "No problem — explore the project structure with `/status`, or just tell me when you have an idea."
+- This command is meant to be used once. After the first session, `/plan` and `/backlog` handle the workflow.
+_EMBED_EOF_21
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/status"
+  cat > "$PROJECT_DIR/.claude/skills/status/SKILL.md" <<'_EMBED_EOF_22'
+---
+name: status
+description: Show current project progress from tasks/todo.md and what to work on next
+argument-hint: ""
+user-invocable: true
+allowed-tools: "Read, Bash(git status*), Bash(git branch*), Bash(git log*)"
+---
+
+Show the current project status — what's done, what's in progress, and what's next.
+
+## Process
+
+1. **Read `tasks/todo.md`** — Parse the plan and identify:
+   - Completed items (checked boxes)
+   - In-progress items
+   - Next unchecked items
+   - Any upcoming checkpoints
+2. **Check git state** — Current branch, uncommitted changes, recent commits.
+3. **Check `tasks/lessons.md`** — Any recent entries relevant to current work.
+
+## Output Format
+
+```
+## Project Status
+
+**Branch**: feat/current-branch
+**Plan status**: X/Y steps complete
+
+### Completed
+- [list of done items]
+
+### In Progress
+- [current work]
+
+### Up Next
+- [next 2-3 items]
+
+### Blockers
+- [any blocked items or concerns]
+
+### Recent Lessons
+- [relevant entries from lessons.md, if any]
+```
+
+Keep it concise — this is a quick status check, not a deep analysis.
+_EMBED_EOF_22
+
+  mkdir -p "$PROJECT_DIR/.claude/skills/test"
+  cat > "$PROJECT_DIR/.claude/skills/test/SKILL.md" <<'_EMBED_EOF_23'
+---
+name: test
+description: Run tests, analyze failures, and propose fixes
+argument-hint: "[unit|integration|agent|all|<file path>]"
+user-invocable: true
+allowed-tools: "Read, Grep, Glob, Bash(make test*), Bash(make lint*), Bash(make check*)"
+context: fork
+agent: general-purpose
+---
+
+Run the test suite, analyze results, and propose fixes for any failures.
+
+## Scope
+
+- `$ARGUMENTS` is empty or "all": run `make test` (full suite, fail-fast by tier).
+- `$ARGUMENTS` is "unit": run `make test-unit`.
+- `$ARGUMENTS` is "integration": run `make test-integration`.
+- `$ARGUMENTS` is "agent": run `make test-agent`.
+- `$ARGUMENTS` is a file path: run `make test-file FILE=<path>`.
+
+## Process
+
+1. Run the specified tests.
+2. If all pass: report success with a brief summary.
+3. If any fail:
+   - Parse the error output to identify the root cause.
+   - Read the failing test and the code under test.
+   - Propose a fix — explain what went wrong and how to resolve it.
+   - Do NOT apply the fix automatically — present it for approval.
+
+## Output
+
+Write detailed results to `scratch/test_results_latest.md` with:
+- Pass/fail counts per tier
+- Failure details (test name, error message, relevant code)
+- Proposed fixes if applicable
+
+Return a ≤5 line summary to the main context.
+_EMBED_EOF_23
+
+  success "Claude slash commands generated (.claude/skills/)"
+}
+
+# ---------------------------------------------------------------------------
+# Generate: Git safety hooks (embedded — no template dependency)
+# ---------------------------------------------------------------------------
+generate_hooks() {
+  if [[ -f "$PROJECT_DIR/.claude/hooks/protect-main-branch.sh" ]]; then
+    info ".claude/hooks/ already exists — skipping"
+    return
+  fi
+  info "Generating git hooks..."
+  mkdir -p "$PROJECT_DIR/.claude/hooks"
+
+  cat > "$PROJECT_DIR/.claude/hooks/protect-main-branch.sh" <<'_EMBED_EOF_24'
+#!/usr/bin/env bash
+# Hook: Prevent git commit and git push on main/master branches.
+# Enforces the "never commit to main directly" guardrail from CLAUDE.md Section 2.2.
+#
+# Exit codes:
+#   0 — allow the command
+#   2 — block the command (stderr fed to Claude as feedback)
+#
+# Output: JSON with permissionDecision when blocking.
+set -euo pipefail
+
+INPUT=$(cat)
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+
+# Only check git commit and git push commands
+if [[ "$COMMAND" == *"git commit"* ]] || [[ "$COMMAND" == *"git push"* ]]; then
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+  if [[ "$CURRENT_BRANCH" == "main" ]] || [[ "$CURRENT_BRANCH" == "master" ]]; then
+    echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Direct commits and pushes to the '"$CURRENT_BRANCH"' branch are blocked by project policy (CLAUDE.md Section 2.2). Create a feature branch first: git checkout -b feat/your-description"}}'
+    exit 0
+  fi
+fi
+
+# Allow everything else
+exit 0
+_EMBED_EOF_24
+
+  chmod +x "$PROJECT_DIR/.claude/hooks/protect-main-branch.sh"
+  success "Git hooks generated (.claude/hooks/)"
+}
+
+# ---------------------------------------------------------------------------
+# Generate: GitHub issue/PR templates (embedded — no template dependency)
+# ---------------------------------------------------------------------------
+generate_github_templates() {
+  if [[ -d "$PROJECT_DIR/.github/ISSUE_TEMPLATE" ]]; then
+    info ".github/ templates already exist — skipping"
+    return
+  fi
+  info "Generating GitHub templates..."
+  mkdir -p "$PROJECT_DIR/.github/ISSUE_TEMPLATE"
+
+  cat > "$PROJECT_DIR/.github/ISSUE_TEMPLATE/bug.yml" <<'_EMBED_EOF_25'
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug", "needs-triage"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of the bug.
+      placeholder: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Run '...'
+        2. See error '...'
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - "Low — cosmetic or minor inconvenience"
+        - "Medium — broken feature with workaround"
+        - "High — broken feature, no workaround"
+        - "Critical — data loss, security, or system down"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, language version, relevant tool versions.
+      placeholder: "e.g., macOS 14.5, Python 3.12, Claude Code 1.x"
+_EMBED_EOF_25
+
+  cat > "$PROJECT_DIR/.github/ISSUE_TEMPLATE/config.yml" <<'_EMBED_EOF_26'
+blank_issues_enabled: true
+contact_links: []
+_EMBED_EOF_26
+
+  cat > "$PROJECT_DIR/.github/ISSUE_TEMPLATE/feature.yml" <<'_EMBED_EOF_27'
+name: Feature Request
+description: Suggest a new feature or enhancement
+labels: ["feature", "needs-triage"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What feature would you like?
+      placeholder: A clear description of the feature.
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: Why is this needed? What problem does it solve?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: How will we know this is done?
+      placeholder: |
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Estimated Scope
+      options:
+        - "Small — a few hours, single file"
+        - "Medium — a day or two, multiple files"
+        - "Large — a week+, architectural changes"
+_EMBED_EOF_27
+
+  cat > "$PROJECT_DIR/.github/ISSUE_TEMPLATE/task.yml" <<'_EMBED_EOF_28'
+name: Task
+description: A development task or chore
+labels: ["task"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What needs to be done?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: How will we know this is done?
+      placeholder: |
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Related issues, files, or background information.
+_EMBED_EOF_28
+
+  cat > "$PROJECT_DIR/.github/pull_request_template.md" <<'_EMBED_EOF_29'
+## What
+
+<!-- What does this PR do? One sentence. -->
+
+## Why
+
+<!-- Why is this change needed? Link to issue if applicable. -->
+
+Closes #
+
+## How
+
+<!-- How was this implemented? Key decisions or tradeoffs. -->
+
+## Test Plan
+
+- [ ] Tests pass locally (`make check`)
+- [ ] New tests added for new functionality
+- [ ] Manual verification:
+  -
+
+## Checklist
+
+- [ ] Code follows project conventions
+- [ ] No secrets or credentials in diff
+- [ ] Documentation updated if needed
+_EMBED_EOF_29
+
+  success "GitHub templates generated (.github/)"
+}
+
+# ---------------------------------------------------------------------------
+# Generate: .gitignore (embedded — no template dependency)
+# ---------------------------------------------------------------------------
+generate_gitignore() {
+  if [[ -f "$PROJECT_DIR/.gitignore" ]]; then
+    info ".gitignore already exists — skipping"
+    return
+  fi
+  info "Generating .gitignore..."
+
+  cat > "$PROJECT_DIR/.gitignore" <<'_EMBED_EOF_30'
+# =============================================================================
+# Scaffold — .gitignore
+# =============================================================================
+# Language-specific entries are appended during scaffold init.
+
+# Scratch / ephemeral workspace (subagent outputs, experiments)
+scratch/*
+!scratch/.gitkeep
+!scratch/README.md
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Coverage reports
+coverage_html/
+htmlcov/
+.coverage
+*.lcov
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Build artifacts (generic)
+dist/
+build/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+_EMBED_EOF_30
+
+  success ".gitignore generated"
+}
+
+
+# ---------------------------------------------------------------------------
+# Generate: Task management files (embedded templates)
+# ---------------------------------------------------------------------------
+generate_task_files() {
+  mkdir -p "$PROJECT_DIR/tasks"
+
+  # --- tasks/todo.md ---
+  if [[ ! -f "$PROJECT_DIR/tasks/todo.md" ]]; then
+    local today
+    today=$(date +%Y-%m-%d)
+    cat > "$PROJECT_DIR/tasks/todo.md" <<TODOEOF
+# Task Plan — ${PROJECT_NAME}
+
+> Created: ${today}
+> Status: Not started
+
+## Objective
+
+_Define your project objective here, or run \`/plan\` in Claude Code._
+
+## Plan
+
+- [ ] 1. First task
+- [ ] 2. Second task
+TODOEOF
+  fi
+
+  # --- tasks/lessons.md ---
+  if [[ ! -f "$PROJECT_DIR/tasks/lessons.md" ]]; then
+    cat > "$PROJECT_DIR/tasks/lessons.md" <<'_TASK_LESSONS_EOF'
+# Project Knowledge Base
+
+> This file accumulates across sessions. Review relevant sections at session start.
+> Filter by tags to find entries relevant to the current task.
+
+## Tag Reference
+
+| Tag | Domain |
+|-----|--------|
+| `git` | Version control, branching, merge conflicts |
+| `api` | External APIs, integrations, auth |
+| `testing` | Test failures, coverage gaps, flaky tests |
+| `agent` | Agent behavior, hallucination, prompt issues |
+| `pipeline` | Data pipelines, ETL, processing chains |
+| `config` | Environment, deployment, secrets, CI/CD |
+| `perf` | Performance, optimization, resource usage |
+| `security` | Vulnerabilities, credentials, access control |
+| `docs` | Documentation gaps, spec ambiguity |
+| `infra` | Infrastructure, networking, containers |
+
+> Add new tags as domains emerge. Keep tags short and lowercase.
+
+---
+
+## Mistakes & Corrections
+
+What went wrong and how to prevent it. Updated after any correction loop.
+
+<!--
+Pattern: [short description]
+Tags: [tag1, tag2]
+Mistake: [what went wrong]
+Rule: [preventive instruction — make it clear, negative if possible]
+Added: [YYYY-MM-DD]
+-->
+
+_No entries yet._
+
+---
+
+## What Works (Positive Patterns)
+
+Patterns, approaches, and techniques that proved effective. Capture what to repeat.
+
+<!--
+Pattern: [short description]
+Tags: [tag1, tag2]
+Context: [when/where this was effective]
+Why: [why it works — be specific]
+Added: [YYYY-MM-DD]
+-->
+
+_No entries yet._
+
+---
+
+## Troubleshooting
+
+Recurring issues with known fixes. Use the symptom-cause-solution format for fast diagnosis.
+
+<!--
+Symptom: [what you observe]
+Tags: [tag1, tag2]
+Cause: [root cause]
+Solution: [how to fix it]
+Added: [YYYY-MM-DD]
+-->
+
+_No entries yet._
+
+---
+
+## Project Insights
+
+Higher-level learnings about the project's architecture, dependencies, or domain. Things a new session needs to know.
+
+<!--
+Insight: [what was discovered]
+Tags: [tag1, tag2]
+Impact: [how this affects decisions or implementation]
+Added: [YYYY-MM-DD]
+-->
+
+_No entries yet._
+_TASK_LESSONS_EOF
+  fi
+
+  # --- tasks/tests.md ---
+  if [[ ! -f "$PROJECT_DIR/tasks/tests.md" ]]; then
+    cat > "$PROJECT_DIR/tasks/tests.md" <<'_TASK_TESTS_EOF'
+# Test Registry
+
+> Update when adding or removing tests. This is the living map of test coverage.
+
+## Coverage Summary
+
+| Module/Component | Unit | Integration | Agent Behavior | Priority Gap |
+|-----------------|------|-------------|----------------|--------------|
+| _example_       | ❌ 0 | ❌ 0        | ❌ 0            | —            |
+
+## How to Run
+
+| Command | Scope |
+|---------|-------|
+| `make test` | Full suite (unit → integration → agent, fail-fast) |
+| `make test-unit` | Tier 1 — Unit tests only |
+| `make test-integration` | Tier 2 — Integration tests only |
+| `make test-agent` | Tier 3 — Agent behavior tests only |
+| `make test-file FILE=x` | Single test file |
+| `make test-coverage` | Full suite + coverage report |
+| `make check` | lint + typecheck + test (pre-PR gate) |
+
+## Test Tiers
+
+### Tier 1: Unit Tests
+- **Scope**: Individual functions, utilities, parsers, transformers
+- **Speed**: Milliseconds per test
+- **Rules**: No network, no I/O, no database. Mock external deps.
+- **Naming**: `test_<function>_<scenario>_<expected>`
+
+### Tier 2: Integration Tests
+- **Scope**: API endpoints, pipelines, service interactions
+- **Speed**: Seconds per test
+- **Rules**: May use local services. No production endpoints.
+- **Naming**: `test_integration_<component>_<scenario>`
+
+### Tier 3: Agent Behavior Tests
+- **Scope**: End-to-end output validation, anti-hallucination checks
+- **Speed**: Seconds to minutes
+- **Rules**: Validate against expected schemas. Check for fabrications.
+- **Naming**: `test_agent_<agent>_<behavior>`
+
+## Recent Gaps / TODO
+
+- [ ] _Add entries as gaps are identified_
+_TASK_TESTS_EOF
+  fi
+
+  # --- tasks/session.md ---
+  if [[ ! -f "$PROJECT_DIR/tasks/session.md" ]]; then
+    cat > "$PROJECT_DIR/tasks/session.md" <<'_TASK_SESSION_EOF'
+# Session State
+
+> Managed by `/save` and `/load` slash commands.
+> This file captures context between Claude Code sessions.
+
+## Last Session
+
+- **Date**: _not yet saved_
+- **Branch**: _none_
+- **Status**: _new project_
+
+## Context
+
+_No session state saved yet. Use `/save` at the end of a session._
+
+## Open Questions
+
+_None yet._
+_TASK_SESSION_EOF
+  fi
+
+  success "Task management files generated (tasks/)"
+}
+
+# ---------------------------------------------------------------------------
+# Generate: Scratch workspace (ephemeral files)
+# ---------------------------------------------------------------------------
+generate_scratch() {
+  if [[ -d "$PROJECT_DIR/scratch" ]]; then
+    return
+  fi
+  mkdir -p "$PROJECT_DIR/scratch"
+  touch "$PROJECT_DIR/scratch/.gitkeep"
+}
+
 apply_common_files() {
   # --- Generate project README (replaces scaffold README) ---
   info "Generating project README..."
@@ -2218,6 +4659,18 @@ jobs:
             --notes "$RELEASE_NOTES"
 RLEOF
   success "Release workflow generated (.github/workflows/release.yml)"
+
+  # --- Generate Makefile ---
+  generate_makefile
+
+  # --- Generate embedded project files ---
+  generate_gitignore
+  generate_agents
+  generate_skills
+  generate_hooks
+  generate_github_templates
+  generate_task_files
+  generate_scratch
 }
 
 # ---------------------------------------------------------------------------
@@ -2473,6 +4926,9 @@ DCEOF
 apply_templates() {
   header "Applying Configuration"
 
+  # Generate .gitignore BEFORE language config (which appends to it)
+  generate_gitignore
+
   apply_language_config
 
   # --- Configure permissions ---
@@ -2721,10 +5177,9 @@ show_summary() {
 
   echo ""
   echo "Next steps:"
-  echo "  1. cd $(basename "$PROJECT_DIR")"
-  echo "  2. Bootstrap dev environment: make setup"
-  echo "  3. Start Claude Code: claude"
-  echo "  4. Type: /start"
+  echo "  1. Bootstrap dev environment: make setup"
+  echo "  2. Start Claude Code: claude"
+  echo "  3. Type: /start"
   echo ""
   echo -e "  ${DIM}Or skip /start and just tell Claude what to build:${RESET}"
   echo "  \"I want to build [your idea]. Help me create a plan.\""
@@ -2833,104 +5288,16 @@ run_migrate() {
   fi
 
   # --- Skills ---
-  local skills_dir="$PROJECT_DIR/.claude/skills"
-  local skills=(plan review test lesson checkpoint status simplify index save load backlog doctor start refactor)
-  local skills_added=0
-  for s in "${skills[@]}"; do
-    if [[ ! -f "$skills_dir/$s/SKILL.md" ]]; then
-      skills_added=$((skills_added + 1))
-    fi
-  done
-  if [[ $skills_added -eq 0 ]]; then
-    info "All skills already exist — skipping"
-  else
-    info "Adding $skills_added missing skill(s)..."
-    # Skills are already in .claude/skills/ from the repo copy — they'll be there
-    # if running from cloned scaffold. For installed scaffold, they come from the install dir.
-    success "  Skills directory ready ($skills_added added)"
-  fi
+  generate_skills
 
   # --- Hooks ---
-  if [[ -f "$PROJECT_DIR/.claude/hooks/protect-main-branch.sh" ]]; then
-    info "Hooks already exist — skipping"
-  else
-    info "Adding hooks..."
-    mkdir -p "$PROJECT_DIR/.claude/hooks"
-    success "  Hooks added"
-  fi
+  generate_hooks
 
   # --- Agents ---
-  if [[ -d "$PROJECT_DIR/agents" ]] && [[ -n "$(ls -A "$PROJECT_DIR/agents" 2>/dev/null)" ]]; then
-    info "agents/ already exists — skipping"
-  else
-    info "Creating agents/..."
-    mkdir -p "$PROJECT_DIR/agents"
-    success "  agents/ created"
-  fi
+  generate_agents
 
   # --- Tasks ---
-  if [[ -d "$PROJECT_DIR/tasks" ]] && [[ -f "$PROJECT_DIR/tasks/todo.md" ]]; then
-    info "tasks/ already exists — skipping"
-  else
-    info "Creating tasks/..."
-    mkdir -p "$PROJECT_DIR/tasks"
-    if [[ ! -f "$PROJECT_DIR/tasks/todo.md" ]]; then
-      local today
-      today=$(date +%Y-%m-%d)
-      cat > "$PROJECT_DIR/tasks/todo.md" <<PLAN
-# Task Plan — ${PROJECT_NAME}
-
-> Created: ${today}
-> Status: Not started
-
-## Objective
-
-_Define your project objective here, or run \`/plan\` in Claude Code._
-
-## Plan
-
-- [ ] 1. First task
-- [ ] 2. Second task
-PLAN
-    fi
-    if [[ ! -f "$PROJECT_DIR/tasks/lessons.md" ]]; then
-      cat > "$PROJECT_DIR/tasks/lessons.md" <<'LESSONS'
-# Project Knowledge Base
-
-> This file accumulates across sessions.
-
-## Mistakes & Corrections
-
-_No entries yet._
-
-## What Works (Positive Patterns)
-
-_No entries yet._
-LESSONS
-    fi
-    if [[ ! -f "$PROJECT_DIR/tasks/tests.md" ]]; then
-      cat > "$PROJECT_DIR/tasks/tests.md" <<'TESTS'
-# Test Registry
-
-> Update when adding or removing tests.
-
-## How to Run
-
-| Command | Scope |
-|---------|-------|
-| `make test` | Full suite |
-| `make check` | lint + typecheck + test |
-TESTS
-    fi
-    if [[ ! -f "$PROJECT_DIR/tasks/session.md" ]]; then
-      cat > "$PROJECT_DIR/tasks/session.md" <<'SESSION'
-# Session State
-
-_Use `/save` and `/load` to manage session state._
-SESSION
-    fi
-    success "  tasks/ created"
-  fi
+  generate_task_files
 
   # --- Test directories ---
   local test_dirs_created=0
@@ -2947,25 +5314,16 @@ SESSION
   fi
 
   # --- Scratch ---
-  if [[ ! -d "$PROJECT_DIR/scratch" ]]; then
-    mkdir -p "$PROJECT_DIR/scratch"
-    touch "$PROJECT_DIR/scratch/.gitkeep"
-    success "  Created scratch/"
-  fi
+  generate_scratch
+
+  # --- .gitignore ---
+  generate_gitignore
 
   # --- Makefile (only if missing) ---
-  if [[ -f "$PROJECT_DIR/Makefile" ]]; then
-    info "Makefile already exists — skipping"
-  else
-    info "Makefile not found — you may want to create one or run full scaffold"
-  fi
+  generate_makefile
 
   # --- .github templates (only if missing) ---
-  if [[ -d "$PROJECT_DIR/.github/ISSUE_TEMPLATE" ]]; then
-    info ".github/ templates already exist — skipping"
-  else
-    info ".github/ templates not found — they'll be added if running from scaffold repo"
-  fi
+  generate_github_templates
 
   # --- GETTING_STARTED.md ---
   if [[ ! -f "$PROJECT_DIR/GETTING_STARTED.md" ]]; then
