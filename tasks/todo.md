@@ -2,7 +2,7 @@
 
 > Updated: 2026-02-13
 > Status: Pending Approval
-> Issues: #38, #39, #44, #47, #48, #49
+> Issues: #38, #39, #44, #47, #48, #49, #54, #55
 
 ## Objective
 
@@ -32,30 +32,40 @@ The script uses 3 bash 4+ features. macOS ships bash 3.2. Fix for portability:
 
 ---
 
-### Phase 2: Small features (#38, #48, #49)
+### Phase 2: Small features + polish (#38, #48, #49, #54, #55)
 > Branch: `feat/v1.1-polish`
 
-Three small, independent additions:
+Five small, independent additions:
 
 **Fish completions (#38)**
-- [ ] 7. Add `print_fish_completions()` using Fish `complete -c scaffold` syntax
-- [ ] 8. Add `fish` case to `--completions` handler in `parse_flags()` + auto-detect from `$SHELL`
-- [ ] 9. Add completions to `show_help()`, update bash/zsh completion flag lists
-- [ ] 10. Test: `--completions fish` output contains `complete -c scaffold`
+- [x] 7. Add `print_fish_completions()` using Fish `complete -c scaffold` syntax
+- [x] 8. Add `fish` case to `--completions` handler in `parse_flags()` + auto-detect from `$SHELL`
+- [x] 9. Add completions to `show_help()`, update bash/zsh completion flag lists
+- [x] 10. Test: `--completions fish` output contains `complete -c scaffold`
 
 **`.scaffoldrc` validation (#48)**
-- [ ] 11. Add `validate_scaffoldrc()` — check each key against known set, warn on unknowns
-- [ ] 12. Simple typo suggestion: check if unknown key is 1-2 chars off from a known key
-- [ ] 13. Validate values where possible (e.g., `LANGUAGE` must be python|typescript|go|rust|none)
-- [ ] 14. Test: unknown key warns, valid config is silent
+- [x] 11. Add `validate_scaffoldrc()` — check each key against known set, warn on unknowns
+- [x] 12. Simple typo suggestion: character-level similarity with 60% threshold
+- [x] 13. Validate values where possible (e.g., `LANGUAGE` must be python|typescript|go|rust|none)
+- [x] 14. Test: unknown key warns, valid config is silent
 
 **`--migrate` multi-language (#49)**
-- [ ] 15. Modify `detect_language()` to return all matches (not just first)
-- [ ] 16. When multiple detected + interactive: prompt user to pick primary
-- [ ] 17. When multiple detected + non-interactive: pick first, print info message
-- [ ] 18. Test: multi-language project prompts for selection
+- [x] 15. Modify `detect_language()` to return all matches (not just first)
+- [x] 16. When multiple detected + interactive: prompt user to pick primary
+- [x] 17. When multiple detected + non-interactive: pick first, print info message
+- [x] 18. Test: multi-language project prompts for selection
 
-- [ ] 19. Run full test suite, commit, push, PR
+**Ralph Wiggum explanation (#54)**
+- [x] 19. Update Ralph prompt with benefits, "best for" / "skip if" guidance
+- [x] 20. Non-interactive mode unchanged (skip by default)
+
+**IDE detection (#55)**
+- [x] 21. Detect installed IDEs from PATH (`code`, `cursor`, `windsurf`, `codium`)
+- [x] 22. Update `step_vscode()` prompt to show detected IDE name
+- [x] 23. Generic fallback if no IDE detected
+- [x] 24. Test: detection logic for common IDE binary names
+
+- [ ] 25. Run full test suite, commit, push, PR
 
 ---
 

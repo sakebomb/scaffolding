@@ -387,7 +387,7 @@ _scaffold_completions() {
 
   # Complete shell after --completions
   if [[ "$prev" == "--completions" ]]; then
-    COMPREPLY=($(compgen -W "bash zsh" -- "$cur"))
+    COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur"))
     return
   fi
 
@@ -399,6 +399,33 @@ _scaffold_completions() {
 complete -F _scaffold_completions ./scaffold
 complete -F _scaffold_completions scaffold
 COMP
+}
+
+print_fish_completions() {
+  cat <<'FCOMP'
+# Fish completion for scaffold
+# Enable: scaffold --completions fish | source
+# Persist: scaffold --completions fish > ~/.config/fish/completions/scaffold.fish
+
+# Clear existing completions
+complete -e -c scaffold
+
+# Flags
+complete -c scaffold -l help -s h -d 'Show help message'
+complete -c scaffold -l keep -d 'Keep scaffold artifacts after init'
+complete -c scaffold -l non-interactive -d 'Use defaults for all prompts'
+complete -c scaffold -l dry-run -d 'Preview without writing anything'
+complete -c scaffold -l update -d 'Update skills, agents, and hooks'
+complete -c scaffold -l completions -d 'Output completion script' -x -a 'bash zsh fish'
+complete -c scaffold -l version -d 'Print scaffold version'
+complete -c scaffold -l migrate -d 'Add scaffold to an existing project'
+complete -c scaffold -l add -d 'Layer a second language' -x -a 'python typescript go rust'
+complete -c scaffold -l dir -d 'Place language files in subdirectory' -r -F
+complete -c scaffold -l save-defaults -d 'Save choices to ~/.scaffoldrc'
+complete -c scaffold -l verify -d 'Validate a scaffolded project'
+complete -c scaffold -l install-template -d 'Install a community template' -r -F
+complete -c scaffold -l list-templates -d 'List available language templates'
+FCOMP
 }
 
 print_zsh_completions() {
@@ -417,7 +444,7 @@ _scaffold() {
     '--non-interactive[Use defaults for all prompts]'
     '--dry-run[Preview without writing anything]'
     '--update[Update skills, agents, and hooks]'
-    '--completions[Output completion script]:shell:(bash zsh)'
+    '--completions[Output completion script]:shell:(bash zsh fish)'
     '--version[Print scaffold version]'
     '--migrate[Add scaffold to an existing project]'
     '--add[Layer a second language]:language:(python typescript go rust)'
@@ -462,9 +489,110 @@ load_scaffoldrc() {
       ALLOW_PKG_MANAGER)  ALLOW_PKG_MANAGER="$value"; _RC_KEYS="${_RC_KEYS}:ALLOW_PKG_MANAGER:" ;;
       ALLOW_DOCKER)       ALLOW_DOCKER="$value"; _RC_KEYS="${_RC_KEYS}:ALLOW_DOCKER:" ;;
       KEEP_ARTIFACTS)     KEEP_ARTIFACTS="$value"; _RC_KEYS="${_RC_KEYS}:KEEP_ARTIFACTS:" ;;
-      *) ;; # ignore unknown keys
+      *) ;; # collect unknown keys for validation below
     esac
   done < "$rc_file"
+
+  # Validate after loading
+  validate_scaffoldrc "$rc_file"
+}
+
+validate_scaffoldrc() {
+  local rc_file="$1"
+  local known_keys="LANGUAGE ARCHETYPE ENABLE_DOCKER ENABLE_VSCODE ENABLE_RALPH ALLOW_COMMIT ALLOW_PUSH ALLOW_PKG_MANAGER ALLOW_DOCKER KEEP_ARTIFACTS"
+
+  local key value
+  while IFS='=' read -r key value; do
+    [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+    key="$(echo "$key" | xargs)"
+    value="$(echo "$value" | xargs)"
+
+    # Check if key is known
+    local found=false
+    for k in $known_keys; do
+      if [[ "$key" == "$k" ]]; then
+        found=true
+        break
+      fi
+    done
+
+    if [[ "$found" == false ]]; then
+      # Try to suggest closest match
+      local suggestion=""
+      suggestion="$(suggest_key "$key" "$known_keys")"
+      if [[ -n "$suggestion" ]]; then
+        warn "Unknown key in $rc_file: $key (did you mean $suggestion?)"
+      else
+        warn "Unknown key in $rc_file: $key"
+      fi
+      continue
+    fi
+
+    # Validate values for keys with known valid sets
+    case "$key" in
+      LANGUAGE)
+        case "$value" in
+          python|typescript|go|rust|none) ;;
+          *) warn "Invalid value for LANGUAGE in $rc_file: '$value' (expected: python, typescript, go, rust, none)" ;;
+        esac
+        ;;
+      ARCHETYPE)
+        case "$value" in
+          cli|api|library|none) ;;
+          *) warn "Invalid value for ARCHETYPE in $rc_file: '$value' (expected: cli, api, library, none)" ;;
+        esac
+        ;;
+      ENABLE_DOCKER|ENABLE_VSCODE|ENABLE_RALPH|ALLOW_COMMIT|ALLOW_PUSH|ALLOW_PKG_MANAGER|ALLOW_DOCKER|KEEP_ARTIFACTS)
+        case "$value" in
+          true|false) ;;
+          *) warn "Invalid value for $key in $rc_file: '$value' (expected: true or false)" ;;
+        esac
+        ;;
+    esac
+  done < "$rc_file"
+}
+
+suggest_key() {
+  # Simple typo suggestion using character-level comparison
+  local unknown="$1"
+  local known_keys="$2"
+  local unknown_lower
+  unknown_lower="$(echo "$unknown" | tr '[:upper:]' '[:lower:]')"
+  local best="" best_score=0
+
+  for k in $known_keys; do
+    local k_lower
+    k_lower="$(echo "$k" | tr '[:upper:]' '[:lower:]')"
+
+    # Exact case-insensitive match
+    if [[ "$unknown_lower" == "$k_lower" ]]; then
+      echo "$k"
+      return
+    fi
+
+    # Skip if lengths differ by more than 2
+    local len_diff=$(( ${#unknown} - ${#k} ))
+    [[ $len_diff -lt 0 ]] && len_diff=$(( -len_diff ))
+    [[ $len_diff -gt 2 ]] && continue
+
+    # Count matching characters at same position
+    local i=0 matches=0 max=${#unknown}
+    [[ ${#k} -lt $max ]] && max=${#k}
+    while [[ $i -lt $max ]]; do
+      [[ "${unknown_lower:$i:1}" == "${k_lower:$i:1}" ]] && matches=$((matches + 1))
+      i=$((i + 1))
+    done
+
+    # Score: percentage of characters that match in position
+    local score=$((matches * 100 / max))
+    if [[ $score -ge 60 ]] && [[ $score -gt $best_score ]]; then
+      best="$k"
+      best_score=$score
+    fi
+  done
+
+  [[ -n "$best" ]] && echo "$best"
+  return 0
 }
 
 save_scaffoldrc() {
@@ -512,21 +640,23 @@ parse_flags() {
         ;;
       --completions)
         local shell_arg="${2:-}"
-        if [[ "$shell_arg" == "bash" || "$shell_arg" == "zsh" ]]; then
+        if [[ "$shell_arg" == "bash" || "$shell_arg" == "zsh" || "$shell_arg" == "fish" ]]; then
           shift
         else
           # Auto-detect from $SHELL
           if [[ "${SHELL:-}" == */zsh ]]; then
             shell_arg="zsh"
+          elif [[ "${SHELL:-}" == */fish ]]; then
+            shell_arg="fish"
           else
             shell_arg="bash"
           fi
         fi
-        if [[ "$shell_arg" == "zsh" ]]; then
-          print_zsh_completions
-        else
-          print_completions
-        fi
+        case "$shell_arg" in
+          zsh)  print_zsh_completions ;;
+          fish) print_fish_completions ;;
+          *)    print_completions ;;
+        esac
         exit 0
         ;;
       --version)
@@ -609,7 +739,7 @@ Options:
   --non-interactive   Use defaults for all prompts (for CI/automation)
   --dry-run           Preview what would be created without writing anything
   --update            Update skills, agents, and hooks from scaffold repo
-  --completions [sh]  Output completion script (bash or zsh, auto-detects)
+  --completions [sh]  Output completion script (bash, zsh, or fish; auto-detects)
   --version           Print scaffold version
   --migrate           Add scaffold to an existing project (auto-detects language)
   --add [lang]        Layer a second language into an existing project
@@ -900,6 +1030,15 @@ step_ralph() {
   info "Each iteration gets a fresh context window."
   info "Progress persists via tasks/todo.md."
   echo ""
+  info "Best for:"
+  info "  • Multi-step features you want done while AFK"
+  info "  • Bug-fix batches with clear reproduction steps"
+  info "  • Refactors with good test coverage"
+  echo ""
+  info "Skip if:"
+  info "  • You prefer hands-on, step-by-step control"
+  info "  • Your project has no tests yet (Ralph needs a feedback loop)"
+  echo ""
 
   prompt_yn ENABLE_RALPH "Enable Ralph Wiggum autonomous loop?" false
 
@@ -922,13 +1061,36 @@ step_docker() {
   fi
 }
 
-step_vscode() {
-  header "VS Code Settings (Optional)"
+detect_ide() {
+  # Detect installed IDE from PATH
+  if command -v cursor >/dev/null 2>&1; then
+    echo "Cursor"
+  elif command -v windsurf >/dev/null 2>&1; then
+    echo "Windsurf"
+  elif command -v codium >/dev/null 2>&1; then
+    echo "VSCodium"
+  elif command -v code >/dev/null 2>&1; then
+    echo "VS Code"
+  else
+    echo ""
+  fi
+}
 
-  prompt_yn ENABLE_VSCODE "Include .vscode/ settings and recommended extensions?" false
+step_vscode() {
+  header "IDE Settings (Optional)"
+
+  local ide_name
+  ide_name="$(detect_ide)"
+
+  if [[ -n "$ide_name" ]]; then
+    info "Detected: $ide_name"
+    prompt_yn ENABLE_VSCODE "Include .vscode/ settings and recommended extensions for $ide_name?" false
+  else
+    prompt_yn ENABLE_VSCODE "Include .vscode/ settings and recommended extensions?" false
+  fi
 
   if [[ "$ENABLE_VSCODE" == true ]]; then
-    success "VS Code settings enabled"
+    success "IDE settings enabled"
   else
     info "Skipped. You can add .vscode/ settings later."
   fi
@@ -5200,18 +5362,21 @@ show_summary() {
 # Migrate mode — add scaffold to an existing project
 # ---------------------------------------------------------------------------
 detect_language() {
-  # Detect language from existing config files
+  # Detect all languages from existing config files (space-separated)
+  local langs=""
   if [[ -f "$PROJECT_DIR/pyproject.toml" || -f "$PROJECT_DIR/setup.py" || -f "$PROJECT_DIR/setup.cfg" ]]; then
-    echo "python"
-  elif [[ -f "$PROJECT_DIR/package.json" || -f "$PROJECT_DIR/tsconfig.json" ]]; then
-    echo "typescript"
-  elif [[ -f "$PROJECT_DIR/go.mod" ]]; then
-    echo "go"
-  elif [[ -f "$PROJECT_DIR/Cargo.toml" ]]; then
-    echo "rust"
-  else
-    echo "none"
+    langs="${langs:+$langs }python"
   fi
+  if [[ -f "$PROJECT_DIR/package.json" || -f "$PROJECT_DIR/tsconfig.json" ]]; then
+    langs="${langs:+$langs }typescript"
+  fi
+  if [[ -f "$PROJECT_DIR/go.mod" ]]; then
+    langs="${langs:+$langs }go"
+  fi
+  if [[ -f "$PROJECT_DIR/Cargo.toml" ]]; then
+    langs="${langs:+$langs }rust"
+  fi
+  echo "${langs:-none}"
 }
 
 run_migrate() {
@@ -5221,9 +5386,11 @@ run_migrate() {
   PROJECT_NAME="${PROJECT_NAME:-$(basename "$PROJECT_DIR")}"
   PROJECT_DESC="${PROJECT_DESC:-A project built with Claude Code}"
 
-  # Detect language
-  LANGUAGE="$(detect_language)"
-  if [[ "$LANGUAGE" == "none" ]]; then
+  # Detect language(s)
+  local detected
+  detected="$(detect_language)"
+
+  if [[ "$detected" == "none" ]]; then
     info "Could not detect language from config files."
     if [[ "$NON_INTERACTIVE" == false ]]; then
       prompt_choice LANGUAGE "Select primary language:" \
@@ -5235,8 +5402,33 @@ run_migrate() {
       LANGUAGE="${LANGUAGE%% *}"
     else
       info "Using language-agnostic mode. Re-run with --add <lang> later."
+      LANGUAGE="none"
     fi
+  elif [[ "$detected" == *" "* ]]; then
+    # Multiple languages detected
+    info "Multiple languages detected: $detected"
+    if [[ "$NON_INTERACTIVE" == false ]]; then
+      # Build choice list from detected languages
+      local choice_args=()
+      local lang
+      for lang in $detected; do
+        case "$lang" in
+          python)     choice_args+=("python    — pytest, ruff, mypy") ;;
+          typescript) choice_args+=("typescript — vitest, eslint, tsc") ;;
+          go)         choice_args+=("go        — go test, golangci-lint") ;;
+          rust)       choice_args+=("rust      — cargo test, clippy") ;;
+        esac
+      done
+      prompt_choice LANGUAGE "Select primary language:" "${choice_args[@]}"
+      LANGUAGE="${LANGUAGE%% *}"
+    else
+      # Non-interactive: pick first detected language
+      LANGUAGE="${detected%% *}"
+      info "Using $LANGUAGE as primary (first detected). Use --add <lang> for others."
+    fi
+    success "Primary language: $LANGUAGE"
   else
+    LANGUAGE="$detected"
     success "Detected language: $LANGUAGE"
   fi
 
