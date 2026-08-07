@@ -1264,6 +1264,187 @@ test_scaffoldrc_override() {
 }
 
 # ---------------------------------------------------------------------------
+# .scaffoldrc validation
+# ---------------------------------------------------------------------------
+test_scaffoldrc_validate() {
+  echo ""
+  echo -e "${BOLD}Test: .scaffoldrc validation${RESET}"
+
+  setup_test "scaffoldrc-validate"
+
+  # Create a scaffoldrc with unknown keys and invalid values
+  local rc_file="$WORK_DIR/.scaffoldrc"
+  cat > "$rc_file" <<'RCEOF'
+# Test validation
+LANGUAGE=python
+LANGAUGE=go
+ENABLE_DOCKER=maybe
+FOOBAR=baz
+RCEOF
+
+  # Run scaffold in dry-run mode to capture validation warnings without full init
+  export SCAFFOLDRC="$rc_file"
+  local output
+  output="$(cd "$WORK_DIR" && ./scaffold --non-interactive --dry-run 2>&1)"
+  unset SCAFFOLDRC
+
+  # Should warn about unknown key LANGAUGE (typo) with suggestion
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "Unknown key.*LANGAUGE"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Should warn about unknown key LANGAUGE"
+  fi
+
+  # Should suggest LANGUAGE for LANGAUGE typo
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "did you mean LANGUAGE"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Should suggest LANGUAGE for LANGAUGE typo"
+  fi
+
+  # Should warn about unknown key FOOBAR (no suggestion)
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "Unknown key.*FOOBAR"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Should warn about unknown key FOOBAR"
+  fi
+
+  # Should warn about invalid value for ENABLE_DOCKER
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "Invalid value for ENABLE_DOCKER"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Should warn about invalid value 'maybe' for ENABLE_DOCKER"
+  fi
+
+  # Valid key LANGUAGE=python should NOT warn
+  TOTAL=$((TOTAL + 1))
+  if ! echo "$output" | grep -q "Invalid value for LANGUAGE"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Valid LANGUAGE=python should not produce a warning"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}.scaffoldrc validation: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# Multi-language detection (#49)
+# ---------------------------------------------------------------------------
+test_migrate_multi_lang() {
+  echo ""
+  echo -e "${BOLD}Test: --migrate multi-language detection${RESET}"
+
+  setup_test "migrate-multi-lang"
+
+  # Clean scaffold artifacts
+  rm -f "$WORK_DIR/CLAUDE.md"
+  rm -rf "$WORK_DIR/.claude/skills" "$WORK_DIR/.claude/hooks"
+  rm -rf "$WORK_DIR/agents" "$WORK_DIR/tasks" "$WORK_DIR/scratch"
+  rm -rf "$WORK_DIR/tests/unit" "$WORK_DIR/tests/integration" "$WORK_DIR/tests/agent"
+  rm -f "$WORK_DIR/GETTING_STARTED.md"
+
+  # Create a project with BOTH Python and TypeScript
+  mkdir -p "$WORK_DIR/src"
+  cat > "$WORK_DIR/pyproject.toml" <<'EOF'
+[project]
+name = "multi"
+version = "0.1.0"
+EOF
+  cat > "$WORK_DIR/package.json" <<'EOF'
+{"name": "multi", "version": "0.1.0"}
+EOF
+
+  git -C "$WORK_DIR" init -b main > /dev/null 2>&1
+  git -C "$WORK_DIR" add -A > /dev/null 2>&1
+  git -C "$WORK_DIR" commit -m "initial" > /dev/null 2>&1
+
+  # Run migrate (non-interactive picks first detected)
+  local output exit_code=0
+  output="$(cd "$WORK_DIR" && ./scaffold --migrate --non-interactive 2>&1)" || exit_code=$?
+
+  # 1. Should detect multiple languages
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "Multiple languages detected"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Should detect multiple languages"
+  fi
+
+  # 2. Non-interactive should pick first detected (python)
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "Using python as primary"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Non-interactive should pick python as primary"
+  fi
+
+  # 3. Should still create CLAUDE.md
+  TOTAL=$((TOTAL + 1))
+  if [[ -f "$WORK_DIR/CLAUDE.md" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Should create CLAUDE.md"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}--migrate multi-language: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# IDE detection (#55)
+# ---------------------------------------------------------------------------
+test_ide_detection() {
+  echo ""
+  echo -e "${BOLD}Test: IDE detection${RESET}"
+
+  setup_test "ide-detection"
+
+  # Run scaffold in dry-run mode to capture IDE detection output
+  local output
+  output="$(cd "$WORK_DIR" && ./scaffold --non-interactive --dry-run 2>&1)"
+
+  # Should show IDE settings section (regardless of detected IDE)
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -qi "IDE Settings\|VS Code Settings\|vscode"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} Should show IDE settings section in dry-run"
+  fi
+
+  # If 'code' or 'cursor' etc. is in PATH, should say "Detected:"
+  # If not, should still work without crash
+  TOTAL=$((TOTAL + 1))
+  if command -v code >/dev/null 2>&1 || command -v cursor >/dev/null 2>&1 || command -v windsurf >/dev/null 2>&1 || command -v codium >/dev/null 2>&1; then
+    if echo "$output" | grep -q "Detected:"; then
+      PASS=$((PASS + 1))
+    else
+      FAIL=$((FAIL + 1))
+      echo -e "  ${RED}FAIL${RESET} IDE detected in PATH but 'Detected:' not shown"
+    fi
+  else
+    # No IDE in PATH — should still complete without error
+    PASS=$((PASS + 1))
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}IDE detection: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
 # Zsh completions
 # ---------------------------------------------------------------------------
 test_completions_zsh() {
@@ -1359,6 +1540,76 @@ test_completions_bash_explicit() {
 
   teardown_test
   echo -e "  ${GREEN}--completions bash: done${RESET}"
+}
+
+# ---------------------------------------------------------------------------
+# Fish completions
+# ---------------------------------------------------------------------------
+test_completions_fish() {
+  echo ""
+  echo -e "${BOLD}Test: --completions fish${RESET}"
+
+  setup_test "completions-fish"
+
+  local output
+  output="$(cd "$WORK_DIR" && ./scaffold --completions fish 2>&1)"
+
+  # Should contain fish-specific 'complete -c scaffold'
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -qF -- "complete -c scaffold"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions fish should contain 'complete -c scaffold'"
+  fi
+
+  # Should contain --add with language options (fish uses -l add, not --add)
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q "add.*python"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions fish should list languages for --add"
+  fi
+
+  # Should contain --completions with shell options including fish
+  TOTAL=$((TOTAL + 1))
+  if echo "$output" | grep -q -- "--completions.*fish"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions fish should list 'fish' as shell option"
+  fi
+
+  # Should NOT contain bash-specific syntax
+  TOTAL=$((TOTAL + 1))
+  if ! echo "$output" | grep -qF -- "complete -F"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions fish should not contain bash 'complete -F'"
+  fi
+
+  # Should NOT contain zsh-specific syntax
+  TOTAL=$((TOTAL + 1))
+  if ! echo "$output" | grep -qF -- "#compdef"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions fish should not contain zsh '#compdef'"
+  fi
+
+  # Should not create any project files (check for .scaffold-version which only init creates)
+  TOTAL=$((TOTAL + 1))
+  if [[ ! -f "$WORK_DIR/.scaffold-version" ]]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo -e "  ${RED}FAIL${RESET} --completions fish should not create project"
+  fi
+
+  teardown_test
+  echo -e "  ${GREEN}--completions fish: done${RESET}"
 }
 
 # ---------------------------------------------------------------------------
@@ -2047,6 +2298,7 @@ main() {
     scaffoldrc-ovr) test_scaffoldrc_override ;;
     completions-zsh) test_completions_zsh ;;
     completions-bash) test_completions_bash_explicit ;;
+    completions-fish) test_completions_fish ;;
     add-dir)        test_add_dir ;;
     version-file)   test_scaffold_version_file ;;
     add-interactive) test_add_interactive ;;
@@ -2056,6 +2308,9 @@ main() {
     install-tpl)    test_install_template ;;
     install-tpl-bad) test_install_template_invalid ;;
     hook-protect)   test_hook_protect_main ;;
+    scaffoldrc-validate) test_scaffoldrc_validate ;;
+    migrate-multi)  test_migrate_multi_lang ;;
+    ide-detection)  test_ide_detection ;;
     smoke-python)   test_smoke_python ;;
     smoke-go)       test_smoke_go ;;
     smoke)
@@ -2091,6 +2346,7 @@ main() {
       test_scaffoldrc_override
       test_completions_zsh
       test_completions_bash_explicit
+      test_completions_fish
       test_add_dir
       test_scaffold_version_file
       test_add_interactive
@@ -2102,10 +2358,13 @@ main() {
       test_hook_protect_main
       test_smoke_python
       test_smoke_go
+      test_scaffoldrc_validate
+      test_migrate_multi_lang
+      test_ide_detection
       ;;
     *)
       echo "Unknown test: $filter"
-      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|completions|rollback|add-language|version|migrate|migrate-idem|scaffoldrc|scaffoldrc-ovr|completions-zsh|completions-bash|add-dir|version-file|add-interactive|add-explicit|verify-pass|verify-fail|install-tpl|install-tpl-bad|hook-protect|smoke|smoke-python|smoke-go|archetypes|all]"
+      echo "Usage: $0 [python|typescript|go|rust|none|keep|dry-run|permissions|python-api|ts-cli|go-library|rust-library|completions|rollback|add-language|version|migrate|migrate-idem|scaffoldrc|scaffoldrc-ovr|scaffoldrc-validate|migrate-multi|ide-detection|completions-zsh|completions-bash|completions-fish|add-dir|version-file|add-interactive|add-explicit|verify-pass|verify-fail|install-tpl|install-tpl-bad|hook-protect|smoke|smoke-python|smoke-go|archetypes|all]"
       exit 1
       ;;
   esac
